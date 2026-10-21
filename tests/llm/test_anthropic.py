@@ -23,7 +23,10 @@ import pytest
 from anthropic import Timeout
 
 from dapr_agents.llm.anthropic.chat import AnthropicChatClient
-from dapr_agents.llm.anthropic.client import AnthropicClientBase
+from dapr_agents.llm.anthropic.client import (
+    DEFAULT_TIMEOUT_SECONDS,
+    AnthropicClientBase,
+)
 from dapr_agents.types.exceptions import StructureError
 from dapr_agents.types.message import (
     AssistantMessage,
@@ -73,26 +76,31 @@ def test_anthropic_client_initialization(mock_anthropic_class):
 
 def test_anthropic_configure_timeout_numeric():
     """Numeric timeouts are converted to float."""
-    assert AnthropicClientBase.configure_timeout(1500) == 1500.0
-    assert AnthropicClientBase.configure_timeout(30.5) == 30.5
-    assert isinstance(AnthropicClientBase.configure_timeout(1500), float)
-    assert AnthropicClientBase.configure_timeout(0) == 0.0
+    assert (
+        AnthropicClientBase._configure_timeout(DEFAULT_TIMEOUT_SECONDS)
+        == DEFAULT_TIMEOUT_SECONDS
+    )
+    assert AnthropicClientBase._configure_timeout(30.5) == 30.5
+    assert isinstance(
+        AnthropicClientBase._configure_timeout(DEFAULT_TIMEOUT_SECONDS), float
+    )
+    assert AnthropicClientBase._configure_timeout(0) == 0.0
     # String numeric timeouts
-    assert AnthropicClientBase.configure_timeout("45") == 45.0
-    assert AnthropicClientBase.configure_timeout("60.5") == 60.5
+    assert AnthropicClientBase._configure_timeout("45") == 45.0
+    assert AnthropicClientBase._configure_timeout("60.5") == 60.5
 
 
 def test_anthropic_configure_timeout_none():
     """None timeout is preserved as None."""
-    assert AnthropicClientBase.configure_timeout(None) is None
+    assert AnthropicClientBase._configure_timeout(None) is None
 
 
 def test_anthropic_configure_timeout_dict():
     """Dict timeouts are converted to SDK Timeout instances."""
-    t1 = AnthropicClientBase.configure_timeout({"timeout": 45.0})
+    t1 = AnthropicClientBase._configure_timeout({"timeout": 45.0})
     assert isinstance(t1, Timeout)
 
-    t2 = AnthropicClientBase.configure_timeout(
+    t2 = AnthropicClientBase._configure_timeout(
         {"connect": 5.0, "read": 10.0, "write": 15.0, "pool": 20.0}
     )
     assert isinstance(t2, Timeout)
@@ -100,73 +108,101 @@ def test_anthropic_configure_timeout_dict():
     assert t2.read == 10.0
 
     # 'total' key aliases to 'timeout'
-    t3 = AnthropicClientBase.configure_timeout({"total": 60.0})
+    t3 = AnthropicClientBase._configure_timeout({"total": 60.0})
     assert isinstance(t3, Timeout)
 
     # Partial dicts fall back to default timeout for unspecified dimensions
-    t4 = AnthropicClientBase.configure_timeout({"connect": 5.0})
+    t4 = AnthropicClientBase._configure_timeout({"connect": 5.0})
     assert isinstance(t4, Timeout)
     assert t4.connect == 5.0
-    assert t4.read == 1500.0
+    assert t4.read == DEFAULT_TIMEOUT_SECONDS
 
-    t5 = AnthropicClientBase.configure_timeout({"connect": 5.0, "read": 30.0})
+    t5 = AnthropicClientBase._configure_timeout({"connect": 5.0, "read": 30.0})
     assert isinstance(t5, Timeout)
     assert t5.connect == 5.0
     assert t5.read == 30.0
-    assert t5.write == 1500.0
+    assert t5.write == DEFAULT_TIMEOUT_SECONDS
 
-    t6 = AnthropicClientBase.configure_timeout({"connect": "5.0", "read": "30.0"})
+    t6 = AnthropicClientBase._configure_timeout({"connect": "5.0", "read": "30.0"})
     assert isinstance(t6, Timeout)
     assert t6.connect == 5.0
     assert t6.read == 30.0
+
+    # Empty dict falls back to DEFAULT_TIMEOUT_SECONDS across all dimensions
+    t_empty = AnthropicClientBase._configure_timeout({})
+    assert isinstance(t_empty, Timeout)
+    assert t_empty.connect == DEFAULT_TIMEOUT_SECONDS
+    assert t_empty.read == DEFAULT_TIMEOUT_SECONDS
+    assert t_empty.write == DEFAULT_TIMEOUT_SECONDS
+    assert t_empty.pool == DEFAULT_TIMEOUT_SECONDS
+
+    # Conflicting total and timeout raises ValueError
+    with pytest.raises(ValueError, match="Cannot specify both 'total' and 'timeout'"):
+        AnthropicClientBase._configure_timeout({"total": 60.0, "timeout": 45.0})
 
 
 def test_anthropic_configure_timeout_sdk_timeout():
     """SDK Timeout instances are returned unchanged."""
     orig = Timeout(60.0)
-    res = AnthropicClientBase.configure_timeout(orig)
+    res = AnthropicClientBase._configure_timeout(orig)
     assert res is orig
 
 
 def test_anthropic_configure_timeout_httpx_timeout_conversion():
     """httpx.Timeout instances are converted to SDK Timeout."""
     ht = httpx.Timeout(connect=2.0, read=4.0, write=6.0, pool=8.0)
-    res = AnthropicClientBase.configure_timeout(ht)
+    res = AnthropicClientBase._configure_timeout(ht)
     assert isinstance(res, Timeout)
     assert res.connect == 2.0
     assert res.read == 4.0
     assert res.write == 6.0
     assert res.pool == 8.0
 
+    ht_none = httpx.Timeout(None)
+    res_none = AnthropicClientBase._configure_timeout(ht_none)
+    assert isinstance(res_none, Timeout)
+    assert res_none.connect is None
+    assert res_none.read is None
+    assert res_none.write is None
+    assert res_none.pool is None
+
+    ht_scalar = httpx.Timeout(10.0)
+    res_scalar = AnthropicClientBase._configure_timeout(ht_scalar)
+    assert isinstance(res_scalar, Timeout)
+    assert res_scalar.connect == 10.0
+    assert res_scalar.read == 10.0
+    assert res_scalar.write == 10.0
+    assert res_scalar.pool == 10.0
+
 
 def test_anthropic_configure_timeout_invalid():
     """Invalid timeout values raise ValueError."""
     with pytest.raises(ValueError, match="booleans are not valid timeouts"):
-        AnthropicClientBase.configure_timeout(True)
+        AnthropicClientBase._configure_timeout(True)
 
     with pytest.raises(ValueError, match="booleans are not valid timeouts"):
-        AnthropicClientBase.configure_timeout(False)
+        AnthropicClientBase._configure_timeout(False)
 
     with pytest.raises(ValueError, match="booleans are not valid timeouts"):
-        AnthropicClientBase.configure_timeout({"connect": True})
+        AnthropicClientBase._configure_timeout({"connect": True})
 
     with pytest.raises(ValueError, match="cannot be negative"):
-        AnthropicClientBase.configure_timeout(-5)
+        AnthropicClientBase._configure_timeout(-5)
 
     with pytest.raises(ValueError, match="cannot be negative"):
-        AnthropicClientBase.configure_timeout("-10")
+        AnthropicClientBase._configure_timeout("-10")
 
     with pytest.raises(ValueError, match="cannot be negative"):
-        AnthropicClientBase.configure_timeout({"timeout": -1.0})
+        AnthropicClientBase._configure_timeout({"timeout": -1.0})
 
     with pytest.raises(ValueError, match="cannot be negative"):
-        AnthropicClientBase.configure_timeout({"connect": "-5.0"})
+        AnthropicClientBase._configure_timeout({"connect": "-5.0"})
 
     with pytest.raises(ValueError, match="Invalid timeout configuration"):
-        AnthropicClientBase.configure_timeout("invalid")
+        AnthropicClientBase._configure_timeout("invalid")
 
     with pytest.raises(ValueError, match="Invalid timeout configuration"):
-        AnthropicClientBase.configure_timeout([10])
+        AnthropicClientBase._configure_timeout([10])
 
 
 @patch("dapr_agents.llm.anthropic.client.Anthropic")
@@ -174,10 +210,10 @@ def test_anthropic_client_timeout_forwarded(mock_anthropic_class):
     """Timeout configuration is properly passed to Anthropic SDK constructor."""
     mock_anthropic_class.return_value = MagicMock()
 
-    # Default timeout is float 1500.0, not httpx.Timeout
+    # Default timeout is float DEFAULT_TIMEOUT_SECONDS, not httpx.Timeout
     AnthropicChatClient(api_key="fake-key")
     call_kwargs = mock_anthropic_class.call_args.kwargs
-    assert call_kwargs["timeout"] == 1500.0
+    assert call_kwargs["timeout"] == DEFAULT_TIMEOUT_SECONDS
     assert isinstance(call_kwargs["timeout"], float)
 
     # None timeout
@@ -230,6 +266,10 @@ model:
 system:
 Test
 """
+    # Test default timeout
+    client_default = AnthropicChatClient.from_prompty(prompty_yaml)
+    assert client_default.timeout == DEFAULT_TIMEOUT_SECONDS
+
     # Test float timeout
     client = AnthropicChatClient.from_prompty(prompty_yaml, timeout=45.0)
     assert client.timeout == 45.0
@@ -247,7 +287,7 @@ Test
 def test_anthropic_real_client_initialization_timeout():
     """Un-mocked AnthropicChatClient initializes real SDK client with float timeout."""
     client = AnthropicChatClient(api_key="fake-key")
-    assert client.client.timeout == 1500.0
+    assert client.client.timeout == DEFAULT_TIMEOUT_SECONDS
     assert isinstance(client.client.timeout, (int, float))
 
     # Float timeout

@@ -26,6 +26,7 @@ from dapr_agents.types.llm import AnthropicClientConfig
 logger = logging.getLogger(__name__)
 
 PROVIDER = "anthropic"
+DEFAULT_TIMEOUT_SECONDS: float = 1500.0
 
 
 class AnthropicClientBase(LLMClientBase):
@@ -40,8 +41,12 @@ class AnthropicClientBase(LLMClientBase):
         description="Base URL override for the Anthropic API (proxy or compatible endpoint).",
     )
     timeout: int | float | dict[str, Any] | Timeout | httpx.Timeout | None = Field(
-        default=1500,
-        description="Default request timeout in seconds, or an SDK-appropriate Timeout / kwarg dict.",
+        default=DEFAULT_TIMEOUT_SECONDS,
+        description=(
+            "Default request timeout in seconds, or an SDK-appropriate Timeout / kwarg dict. "
+            "For partial dicts, unspecified timeout dimensions (connect, read, write, pool) "
+            "default to DEFAULT_TIMEOUT_SECONDS (1500.0s)."
+        ),
     )
 
     @staticmethod
@@ -65,11 +70,13 @@ class AnthropicClientBase(LLMClientBase):
         raise ValueError(f"Invalid timeout configuration: {val!r}")
 
     @staticmethod
-    def configure_timeout(
+    def _configure_timeout(
         timeout: int | float | dict[str, Any] | Timeout | httpx.Timeout | None,
     ) -> float | Timeout | None:
-        """
-        Configure the timeout setting for the Anthropic client.
+        """Configure the timeout setting for the Anthropic client.
+
+        Partial timeout dictionaries (e.g. specifying only connect timeout) will fall back
+        to DEFAULT_TIMEOUT_SECONDS for unspecified dimensions (connect, read, write, pool).
 
         :param timeout: Timeout in seconds, dictionary of timeout configurations,
             or an SDK Timeout instance.
@@ -93,11 +100,15 @@ class AnthropicClientBase(LLMClientBase):
                 pool=AnthropicClientBase._parse_timeout_value(timeout.pool),
             )
         if isinstance(timeout, dict):
+            if "total" in timeout and "timeout" in timeout:
+                raise ValueError(
+                    "Cannot specify both 'total' and 'timeout' in timeout configuration"
+                )
             timeout_dict = {
                 k: AnthropicClientBase._parse_timeout_value(v)
                 for k, v in timeout.items()
             }
-            if "total" in timeout_dict and "timeout" not in timeout_dict:
+            if "total" in timeout_dict:
                 timeout_dict["timeout"] = timeout_dict.pop("total")
             try:
                 return Timeout(**timeout_dict)
@@ -107,7 +118,7 @@ class AnthropicClientBase(LLMClientBase):
                 if "timeout" not in timeout_dict and not all(
                     k in timeout_dict for k in ("connect", "read", "write", "pool")
                 ):
-                    return Timeout(1500.0, **timeout_dict)
+                    return Timeout(DEFAULT_TIMEOUT_SECONDS, **timeout_dict)
                 raise
         return AnthropicClientBase._parse_timeout_value(timeout)
 
@@ -125,7 +136,7 @@ class AnthropicClientBase(LLMClientBase):
 
     def get_client(self) -> Anthropic:
         config = self.config
-        kwargs: dict[str, Any] = {"timeout": self.configure_timeout(self.timeout)}
+        kwargs: dict[str, Any] = {"timeout": self._configure_timeout(self.timeout)}
         if config.api_key:
             kwargs["api_key"] = config.api_key
         if config.base_url:
