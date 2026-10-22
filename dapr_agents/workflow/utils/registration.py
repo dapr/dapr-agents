@@ -34,12 +34,25 @@ from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse, Response
 
 from dapr_agents.types.exceptions import PubSubNotAvailableError
-from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
+from dapr_agents.types.workflow import (
+    HttpRouteSpec,
+    PubSubRouteSpec,
+    WorkflowEventRouteSpec,
+)
 from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
-from dapr_agents.workflow.utils.routers import parse_http_json
+from dapr_agents.workflow.utils.core import named_noop_handler
+from dapr_agents.workflow.utils.event_routes import (
+    EventRouteTarget,
+    is_reserved_event_name,
+)
+from dapr_agents.workflow.utils.routers import (
+    extract_and_validate_message_models,
+    parse_http_json,
+)
 from dapr_agents.workflow.utils.subscription import (
     DedupeBackend,
     MessageRouteBinding,
+    validate_field_resolver,
     validate_hook,
     subscribe_message_bindings,
 )
@@ -132,10 +145,101 @@ def _validate_pubsub_components(
         raise
 
 
+def _require_non_empty_str(value: Any, name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"WorkflowEventRouteSpec.{name} must be a non-empty string, got {value!r}."
+        )
+
+
+def _event_route_schemas(message_model: Any) -> list[type[Any]]:
+    if message_model is None:
+        return [dict]
+    schemas = extract_and_validate_message_models(message_model)
+    if not schemas:
+        raise TypeError(f"Unsupported message_model: {message_model!r}")
+    return schemas
+
+
+def _validate_authorize(fn: Any) -> None:
+    """``authorize`` must be a sync callable taking (message, ctx, target)."""
+    validate_hook(fn, "authorize")
+    if fn is None:
+        return
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return  # not introspectable (some builtins); a wrong arity denies at call time
+    try:
+        signature.bind(None, None, None)
+    except TypeError as exc:
+        raise TypeError(
+            "`authorize` must accept three positional arguments: "
+            "(message, MessageContext, WorkflowEventTarget)."
+        ) from exc
+
+
+def _validate_event_route_spec(spec: WorkflowEventRouteSpec) -> None:
+    """Reject an invalid workflow event route spec at registration time."""
+    _require_non_empty_str(spec.pubsub_name, "pubsub_name")
+    _require_non_empty_str(spec.topic, "topic")
+    _require_non_empty_str(spec.event_name, "event_name")
+    if not spec.allow_reserved_event_names and is_reserved_event_name(spec.event_name):
+        raise ValueError(
+            f"WorkflowEventRouteSpec.event_name {spec.event_name!r} uses a prefix the "
+            "SDK reserves for its own waits; set allow_reserved_event_names=True "
+            "to use it anyway."
+        )
+    validate_hook(spec.payload_filter, "payload_filter")
+    validate_hook(spec.model_filter, "model_filter")
+    _validate_authorize(spec.authorize)
+    validate_field_resolver(spec.instance_id_from, "instance_id_from")
+    validate_field_resolver(spec.event_name_from, "event_name_from", optional=True)
+    validate_field_resolver(spec.data_from, "data_from", optional=True)
+    if not spec.dedupe and spec.deduper is not None:
+        raise ValueError(
+            "WorkflowEventRouteSpec: `deduper` must be None when `dedupe=False`."
+        )
+
+
+def _event_binding_from_spec(spec: WorkflowEventRouteSpec) -> MessageRouteBinding:
+    """Validate a workflow event route spec and build its binding."""
+    _validate_event_route_spec(spec)
+    schemas = _event_route_schemas(spec.message_model)
+    name = spec.name or f"{spec.event_name}@{spec.pubsub_name}:{spec.topic}"
+    target = EventRouteTarget(
+        event_name=spec.event_name,
+        instance_id_from=spec.instance_id_from,
+        event_name_from=spec.event_name_from,
+        data_from=spec.data_from,
+        dedupe=spec.dedupe,
+        deduper=spec.deduper,
+        not_found_retry=spec.not_found_retry,
+        max_data_bytes=spec.max_data_bytes,
+        call_timeout_seconds=spec.call_timeout_seconds,
+        dedupe_max_entries=spec.dedupe_max_entries,
+        allow_reserved_event_names=spec.allow_reserved_event_names,
+        authorize=spec.authorize,
+        hook_timeout_seconds=spec.hook_timeout_seconds,
+    )
+    return MessageRouteBinding(
+        handler=named_noop_handler(name),
+        schemas=schemas,
+        pubsub=spec.pubsub_name,
+        topic=spec.topic,
+        dead_letter_topic=spec.dead_letter_topic,
+        name=name,
+        payload_filter=spec.payload_filter,
+        model_filter=spec.model_filter,
+        mapper=None,
+        event_target=target,
+    )
+
+
 def _collect_message_bindings(
     *,
     targets: Iterable[Any] | None,
-    routes: Iterable[PubSubRouteSpec] | None,
+    routes: Iterable[PubSubRouteSpec | WorkflowEventRouteSpec] | None,
 ) -> list[MessageRouteBinding]:
     bindings: list[MessageRouteBinding] = []
 
@@ -171,6 +275,12 @@ def _collect_message_bindings(
 
     if routes:
         for spec in routes:
+            if isinstance(spec, WorkflowEventRouteSpec):
+                bindings.append(_event_binding_from_spec(spec))
+                continue
+            # PubSubRouteSpec pubsub_name/topic are not checked here (unlike the
+            # stricter event-route validation above); kept as-is so existing
+            # explicit routes behave exactly as before.
             bound = spec.handler_fn
             meta = getattr(bound, "_message_router_data", None)
             if spec.message_model is not None:
@@ -396,7 +506,7 @@ def register_message_routes(
     *,
     dapr_client: DaprClient,
     targets: Iterable[Any] | None = None,
-    routes: Iterable[PubSubRouteSpec] | None = None,
+    routes: Iterable[PubSubRouteSpec | WorkflowEventRouteSpec] | None = None,
     loop: asyncio.AbstractEventLoop | None = None,
     delivery_mode: Literal["sync", "async"] = "sync",
     queue_maxsize: int = 1024,
@@ -414,12 +524,19 @@ def register_message_routes(
     Args:
         dapr_client: Active Dapr client used to create subscriptions.
         targets: Objects/functions containing `@message_router` callables to auto-discover.
-        routes: Explicit `PubSubRouteSpec` entries to register.
+        routes: Explicit `PubSubRouteSpec` entries (start a new workflow per message)
+            and/or `WorkflowEventRouteSpec` entries (raise an external event on an
+            existing workflow per message). A topic with an event route carries
+            no other route.
         loop: Event loop used to await async work (required for `delivery_mode="async"`).
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
+            Workflow event routes are always handled synchronously.
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
-        deduper: Optional idempotency backend keyed by CloudEvent id/hash.
-        wf_client: Reused `DaprWorkflowClient` for scheduling/waiting.
+        deduper: Optional idempotency backend keyed by CloudEvent id/hash. Applies to
+            schedule routes only. Workflow event routes dedupe by default with their
+            own `deduper`, else a per-topic in-memory backend; to share dedupe across
+            replicas for an event route, set `spec.deduper`.
+        wf_client: Reused `DaprWorkflowClient` for scheduling/waiting/raising events.
         await_result: If `True` (sync only), wait for workflow completion and request retry on failure.
         await_timeout: Optional wait timeout in seconds.
         fetch_payloads: Include workflow payloads when waiting for completion.

@@ -22,8 +22,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import dapr.ext.workflow as wf
+import pytest
 
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.workflow.utils.event_routes import TERMINAL_WORKFLOW_STATUSES
 
 
 def _agent_waiting_for_approval():
@@ -112,3 +114,21 @@ def test_raise_approval_event_does_not_log_token(caplog):
         )
 
     assert "super-secret-jwt" not in caplog.text
+
+
+@pytest.mark.parametrize("status", sorted(TERMINAL_WORKFLOW_STATUSES, key=repr))
+def test_raise_approval_event_rejects_terminal_workflow(status):
+    """A finished workflow fails loudly instead of silently dropping the event."""
+    agent = _agent_waiting_for_approval()
+    agent._wf_client.get_workflow_state.return_value = SimpleNamespace(
+        runtime_status=status
+    )
+
+    with pytest.raises(RuntimeError, match="no longer waiting for approval"):
+        DurableAgent.raise_approval_event(
+            agent,
+            instance_id="wf-1",
+            approval_request_id="appr-1",
+            approved=True,
+        )
+    agent._wf_client.raise_workflow_event.assert_not_called()
