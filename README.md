@@ -168,6 +168,8 @@ For a high level introduction to the fundamentals of Dapr Agents, see our [quick
 
 Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](./examples/README.md).
 
+Start with the [durable deep agent](./examples/14-durable-deep-agent) example to see a long-running research task survive a crash and resume.
+
 ## Get Involved
 
 Dapr Agents is an open-source project under the CNCF umbrella, and we welcome contributions from developers and organizations worldwide!
