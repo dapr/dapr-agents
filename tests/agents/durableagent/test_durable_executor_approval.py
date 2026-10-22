@@ -19,11 +19,13 @@ executors; the Claude-specific ones use a fake SDK client (no network).
 
 import asyncio
 import json
+from datetime import timedelta
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from dapr_agents.agents.durable import _approval_request_id
 from dapr_agents.agents.executor_run import (
     EXECUTOR_FAILED_KEY,
     EXECUTOR_PAUSED_KEY,
@@ -120,22 +122,36 @@ class _WorkflowDriver:
     ``run_executor`` returns the queued results in order; every other
     activity returns ``None``. The approval race is resolved by ``outcome``:
     ``"approve"`` / ``"deny"`` deliver an approval event, ``"timeout"``
-    fires the timer.
+    fires the timer. With ``echo_published_id`` the publish activity returns
+    the id it published, as the real activity does; otherwise it returns
+    ``None``, as a publish recorded by older code does.
     """
 
-    def __init__(self, agent, run_results: List[Any], outcome: str = "approve"):
+    def __init__(
+        self,
+        agent,
+        run_results: List[Any],
+        outcome: str = "approve",
+        echo_published_id: bool = False,
+    ):
         self.agent = agent
         self.results = list(run_results)
         self.outcome = outcome
+        self.echo_published_id = echo_published_id
         self.activities: List[Dict[str, Any]] = []
         self.event_task = Mock(name="event_task")
-        self.event_task.get_result.return_value = {
-            "approval_request_id": "x",
-            "approved": outcome == "approve",
-            "reason": "not today" if outcome == "deny" else None,
-        }
+        self.event_task.get_result.side_effect = self._approval_body
         self.timer_task = Mock(name="timer_task")
         self.ctx = self._context()
+
+    def _approval_body(self) -> Dict[str, Any]:
+        # Answer the request that was just published: a response whose id does
+        # not match the pending request is ignored.
+        return {
+            "approval_request_id": self.published()[-1]["approval_request_id"],
+            "approved": self.outcome == "approve",
+            "reason": "not today" if self.outcome == "deny" else None,
+        }
 
     def _context(self):
         ctx = Mock()
@@ -169,6 +185,12 @@ class _WorkflowDriver:
             return self.timer_task if self.outcome == "timeout" else self.event_task
         if isinstance(yielded, tuple) and yielded[1].endswith("run_executor"):
             return self.results.pop(0)
+        if (
+            self.echo_published_id
+            and isinstance(yielded, tuple)
+            and yielded[1].endswith("publish_approval_request")
+        ):
+            return self.published()[-1]["approval_request_id"]
         return None
 
     def run(self, message: Dict[str, Any]) -> Any:
@@ -288,6 +310,41 @@ class TestApprovalLoop:
         assert (
             published[0]["approval_request_id"] != published[1]["approval_request_id"]
         )
+
+    def test_rounds_reusing_a_tool_call_id_wait_on_per_round_ids(self):
+        agent = _approval_agent(max_iterations=3)
+        paused = PausedExecutorRun(
+            tool_call_id="t1",
+            name="mcp__github__create_issue",
+            source="mcp",
+            approval={"timeout_seconds": 30},
+        ).to_activity_result()
+        driver = _WorkflowDriver(
+            agent,
+            [paused, paused, {"role": "assistant", "content": "done"}],
+            echo_published_id=True,
+        )
+        assert driver.run({"task": "file twice"})["content"] == "done"
+
+        published = driver.published()
+        ids = [e["approval_request_id"] for e in published]
+        assert ids == [
+            _approval_request_id("wf-1", "2026-01-01T00:00:00", round_, 0, "t1")
+            for round_ in (1, 2)
+        ]
+        assert ids[0] != ids[1]
+        assert [e["source"] for e in published] == ["mcp", "mcp"]
+        # Only the published ids are awaited; never the legacy tool_call_id name.
+        assert [
+            c.args[0] for c in driver.ctx.wait_for_external_event.call_args_list
+        ] == [f"approval_response_{rid}" for rid in ids]
+        assert [c.args[0] for c in driver.ctx.create_timer.call_args_list] == [
+            timedelta(seconds=30)
+        ] * 2
+        decisions = [
+            i["context"]["tool_decisions"]["t1"] for i in driver.run_inputs()[1:]
+        ]
+        assert [d["approved"] for d in decisions] == [True, True]
 
     def test_call_past_the_cap_is_rejected_without_asking(self):
         agent = _approval_agent(max_iterations=1)
