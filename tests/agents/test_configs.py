@@ -65,9 +65,16 @@ def test_validate_max_iterations_accepts_positive_integers(value, expected):
     assert validate_max_iterations(value) == expected
 
 
-@pytest.mark.parametrize("value", [0, 0.99, -1])
-def test_validate_max_iterations_rejects_non_positive_integers(value):
-    with pytest.raises(ValueError, match="max_iterations"):
+@pytest.mark.parametrize(
+    ("value", "error_message"),
+    [
+        (0, "max_iterations must be >= 1"),
+        (-1, "max_iterations must be >= 1"),
+        (0.99, "max_iterations must be an integer"),
+    ],
+)
+def test_validate_max_iterations_rejects_invalid_values(value, error_message):
+    with pytest.raises(ValueError, match=error_message):
         validate_max_iterations(value)
 
 

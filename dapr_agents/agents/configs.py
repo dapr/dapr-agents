@@ -362,11 +362,12 @@ def validate_non_empty_string(v: str) -> str:
 
 
 def validate_max_iterations(v: int) -> int:
-    """Ensure max_iterations is at least 1."""
-    try:
-        return _validate_positive_int(v)
-    except ValueError:
-        raise ValueError(f"max_iterations must be >= 1, got {v}") from None
+    """Ensure max_iterations is a positive integer."""
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ValueError(f"max_iterations must be an integer, got {v}")
+    if v < 1:
+        raise ValueError(f"max_iterations must be >= 1, got {v}")
+    return v
 
 
 def validate_tool_choice(v: str) -> str:

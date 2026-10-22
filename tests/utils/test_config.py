@@ -58,6 +58,25 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_int_from_float_str(self):
         assert coerce_config_value("10.0", int) == 10
 
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "1e19",
+            "-1e19",
+            "1e1000000000",
+            "-1e1000000000",
+            "10000000000000000000",
+            "-10000000000000000000",
+        ],
+    )
+    def test_coerce_config_value_int_rejects_excessively_large_values(self, value):
+        with pytest.raises(ValueError, match="too large to convert"):
+            coerce_config_value(value, int)
+
+    @pytest.mark.parametrize(("value", "expected"), [("1e3", 10**3), ("1e18", 10**18)])
+    def test_coerce_config_value_int_accepts_exponent_notation(self, value, expected):
+        assert coerce_config_value(value, int) == expected
+
     def test_coerce_config_value_int_from_float(self):
         assert coerce_config_value(10.0, int) == 10
 

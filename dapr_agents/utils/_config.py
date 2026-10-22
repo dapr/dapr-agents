@@ -36,6 +36,11 @@ _CONFIG_KEY_PATTERNS = (
     _KEBAB_CASE_PATTERN,
 )
 
+# Allow values below 10**19, which covers signed 64-bit-sized configuration
+# values, while preventing Decimal -> int conversion from allocating enormous
+# integers for inputs such as ``"1e1000000000"``.
+_MAX_INTEGRAL_ADJUSTED_EXPONENT = 18
+
 
 def is_supported_config_key(key: str) -> bool:
     """Check if a configuration key matches any of the supported naming conventions."""
@@ -47,11 +52,13 @@ def coerce_integral(value: Any) -> int:
 
     Accepts ints, integral floats (``10.0``), ``Decimal`` values, and numeric
     strings (``"10"``, ``"10.0"``, ``"1e3"``). Conversion is exact: nothing is
-    rounded or truncated.
+    rounded or truncated. Values with a magnitude of at least ``10**19`` are rejected before
+    conversion, bounding memory allocation while covering the signed 64-bit integer range.
 
     Raises:
         ValueError: if ``value`` is a ``bool``, is not numeric, is not finite
-            (``nan``/``inf``), or has a fractional part (``10.5``).
+            (``nan``/``inf``), exceeds the supported magnitude, or has a
+            fractional part (``10.5``).
     """
     if isinstance(value, bool):
         raise ValueError(f"Value must be an integer, got {value!r}")
@@ -61,7 +68,11 @@ def coerce_integral(value: Any) -> int:
     except InvalidOperation as exc:
         raise ValueError(f"Value must be an integer, got {value!r}") from exc
 
-    if not numeric.is_finite() or numeric != numeric.to_integral_value():
+    if not numeric.is_finite():
+        raise ValueError(f"Value must be an integer, got {value!r}")
+    if numeric.adjusted() > _MAX_INTEGRAL_ADJUSTED_EXPONENT:
+        raise ValueError(f"Value is too large to convert to an integer, got {value!r}")
+    if numeric != numeric.to_integral_value():
         raise ValueError(f"Value must be an integer, got {value!r}")
 
     return int(numeric)
