@@ -51,6 +51,7 @@ members = [
     "10-mcpserver",
     "11-expert-agent-tavily",
     "13-agent-executor-claude",
+    "14-durable-deep-agent",
     "dapr-agents",
     "dapr-agents-ext-drasi",
     "ext-drasi-change-driven-agents-k8s",
@@ -417,6 +418,17 @@ requires-dist = [
     { name = "dapr-agents", extras = ["claude"], editable = "." },
     { name = "python-dotenv", specifier = ">=1.2.1" },
 ]
+
+[[package]]
+name = "14-durable-deep-agent"
+version = "0.1.0"
+source = { virtual = "examples/14-durable-deep-agent" }
+dependencies = [
+    { name = "dapr-agents" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "dapr-agents", editable = "." }]
 
 [[package]]
 name = "accelerate"
@@ -1901,6 +1913,9 @@ vectorstore = [
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
+
+[package.group-requires-python]
+vectorstore = ">=3.11,<3.14"
 
 [package.metadata]
 requires-dist = [

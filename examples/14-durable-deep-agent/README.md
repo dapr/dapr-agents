@@ -30,11 +30,12 @@ All components use SQLite, so nothing else needs to run. No Docker is needed if 
 
 ## Setup
 
-Install the example's dependencies. From the repository root:
+From this directory, create a virtual environment and install the dependencies. `dapr run` starts the app with whatever `python3` is on your `PATH`, so keep the environment activated in the shell where you run it:
 
 ```bash
-uv sync
-cd examples/14-durable-deep-agent
+uv venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+uv sync --active
 ```
 
 Initialize Dapr. Either mode works with the components in `resources/`:
@@ -47,11 +48,11 @@ dapr init
 dapr init --slim
 ```
 
-With `--slim`, start the placement and scheduler services yourself in two separate terminals, and leave them running:
+With `--slim`, start the placement and scheduler services yourself in two separate terminals, and leave them running. Start them from this directory; the scheduler is given an explicit data directory here (`.dapr-data/`, git-ignored) instead of leaving a `data/` folder wherever it was started:
 
 ```bash
 ~/.dapr/bin/placement
-~/.dapr/bin/scheduler
+~/.dapr/bin/scheduler --etcd-data-dir ./.dapr-data
 ```
 
 Set your key and run the example:
@@ -65,6 +66,8 @@ You can pass a different topic with `command: ["python3", "deep_research_agent.p
 
 The run takes about a minute. After each saved note the tool pauses for 8 seconds (`STEP_PAUSE_SECONDS`) so there is time to stop the process in the crash test below.
 
+When the final brief is printed the app exits. `dapr run` keeps its sidecar up until you press `Ctrl+C`.
+
 ## Crash test
 
 1. Start the run:
@@ -75,7 +78,7 @@ The run takes about a minute. After each saved note the tool pauses for 8 second
 
 2. Watch the output until you see the plan saved and at least two `TOOL save_note` lines, for example `TOOL save_note: step 2 saved to research-notes`.
 
-3. Press `Ctrl+C`. The app and its sidecar stop while the run is still unfinished.
+3. Press `Ctrl+C` during the 8 second pause that follows the second `save_note`. The app and its sidecar stop while the run is still unfinished.
 
 4. Start it again with the same command:
 
@@ -83,7 +86,11 @@ The run takes about a minute. After each saved note the tool pauses for 8 second
    dapr run -f .
    ```
 
+The sample output below assumes the `Ctrl+C` lands in that pause. If it lands earlier or later, the second run simply continues from wherever the run stood: you will see a different retried tool line (or none, if the crash fell between two steps) and different message counts, but still no repeated plan and no repeated finished steps. If you press it after the last note, the second run just prints the final brief.
+
 ### What the first run prints
+
+The samples are abridged: timestamps, the app prefix and framework logs are removed. They were produced with a scripted, OpenAI-compatible model, so the lead agent's turns are exactly as shown. With a real model your counts and wording will differ; the final `Final brief:` text is only a placeholder here.
 
 ```text
 INFO [deep-research] START run deep-research-demo on topic: the main trade-offs of event sourcing
@@ -120,10 +127,10 @@ Final brief:
 
 - **`RESUME run ... status=RUNNING; not rescheduling`**: the app found the unfinished run in the workflow state and did not start a new one. A first run prints `START run ...` instead.
 - **No `TOOL write_plan` line in the second run.** The plan, step 1 and step 2 are in the workflow history. They are read back, not executed again.
-- **No second `LLM CALL` for the finished steps.** The counters restart at `#1` in each process, so compare `messages_in_context`: the first call after the restart sees 12 messages, which is exactly where the first run stopped (the last call before the crash saw 10, plus the step 2 note exchange). If the finished steps were redone, you would see calls with 2, 4, 6 and so on again. The researcher is also called once, for step 3 only.
+- **No repeated `LLM CALL` for the finished steps.** The counters restart at `#1` in each process, so compare `messages_in_context`: the first call after the restart sees 12 messages, which is exactly where the first run stopped (the last call before the crash saw 10, plus the step 2 note exchange). If the finished steps were redone, you would see calls with 2, 4, 6 and so on again. The researcher is also called once, for step 3 only.
 - **`TOOL save_note: step 2` appears once more.** The crash hit while step 2's tool was still running (it was in its 8 second pause), so that one activity is retried. Workflow activities run at least once, which is why every tool here is safe to repeat: `save_note` overwrites the same key.
 
-The log lines come from a `before_llm_call` hook, which runs only when a model is actually called, and from the tools themselves. Replayed history never reaches either. Your model's wording and the exact message counts will differ, but the pattern will not.
+The log lines come from a `before_llm_call` hook, which runs only when a model is actually called, and from the tools themselves. Replayed history never reaches either. With a real model, look for the same things rather than the same numbers: one `RESUME` line, no `write_plan`, a first `messages_in_context` after the restart that is higher than every value logged before the crash, and the researcher called only for the steps that were not finished.
 
 One more thing you will see in the model provider's logs: each agent run ends with one extra summarization call that the framework makes for its memory. It is not a reasoning step and is not counted by the hook.
 
@@ -140,7 +147,7 @@ lead agent (workflow: dapr.agents.lead.workflow)
 - `DurableAgent` runs each LLM call and each tool call as a workflow activity. The workflow records every result in its history.
 - Passing `researcher` in the lead's `tools` list turns it into a tool. A call runs the researcher's own workflow as a child workflow. Both agents share one `WorkflowRuntime` so they live in one process.
 - `AgentRunner.run(..., instance_id="deep-research-demo", wait=False)` starts the run under a fixed id. On the next start, the app checks the workflow state for that id and, if it exists, only starts the worker. The Dapr workflow engine then continues the run by itself.
-- The components are found by name: `agent-workflow` (workflow history, also the actor state store), `agent-memory` (conversation memory) and `llm-provider` (the model). The notes store `research-notes` is used by the tools.
+- The components are found automatically: `agent-workflow` (workflow history, also the actor state store) and `agent-memory` (conversation memory) by name, and the model by its `conversation.*` type. The notes store `research-notes` is used by the tools.
 
 ## Where the notes live and why
 
@@ -152,7 +159,7 @@ The notes live in the `research-notes` state store, not in the conversation. Thr
 
 Because notes are in the store, the conversation stays short. The lead only reads them back at the end with `list_notes` and `read_note`.
 
-You can look at the notes yourself while the run is stopped:
+You can look at the notes yourself while the run is stopped. The keys are prefixed with the app id (`deep-research-app||`) and then the run id, and the values are stored as JSON text:
 
 ```bash
 sqlite3 research-notes.db "select key, value from state"
@@ -160,15 +167,19 @@ sqlite3 research-notes.db "select key, value from state"
 
 ## Starting over
 
-A finished or stopped run keeps its id. To start a new run, either delete the `*.db` files in this folder or choose a new id:
+A finished or stopped run keeps its id. If you start the app again with the id of a run that already completed, failed or was terminated, it prints that status (and the brief or the error) and exits without starting anything.
+
+The simplest way to start a new run is a new id:
 
 ```bash
 RESEARCH_RUN_ID=my-second-run dapr run -f .
 ```
 
+To wipe everything instead, stop the app and delete the `*.db`, `*.db-shm` and `*.db-wal` files in this folder. If you use slim mode, also stop the scheduler and delete `.dapr-data/`: the scheduler keeps the jobs of old runs, and a leftover job could wake a run you deleted. A new `RESEARCH_RUN_ID` avoids that and is usually the better choice.
+
 ## Switching LLM providers
 
-The model is chosen only by the Dapr conversation component in `resources/llm-provider.yaml`. The component must keep the name `llm-provider`; the code never mentions a provider.
+The model is chosen only by the Dapr conversation component in `resources/llm-provider.yaml`. The agent uses the first conversation component it finds in `resources/`, so keep exactly one conversation component there (the name does not matter); the code never mentions a provider.
 
 Anthropic:
 

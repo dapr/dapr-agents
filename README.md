@@ -168,7 +168,7 @@ For a high level introduction to the fundamentals of Dapr Agents, see our [quick
 
 Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](./examples/README.md).
 
-Start with the [durable deep agent](./examples/14-durable-deep-agent) example to see a long-running research task survive a crash and resume.
+See the [durable deep agent](./examples/14-durable-deep-agent) example for a long-running research task that survives a crash and resumes.
 
 ## Get Involved
 

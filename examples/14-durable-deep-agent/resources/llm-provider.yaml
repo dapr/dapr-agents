@@ -13,6 +13,8 @@
 
 # The only place the LLM provider is configured. To switch providers, change
 # `type` and the metadata below (see the README); the Python code is untouched.
+# The agent picks the first `conversation.*` component in this folder, so keep
+# exactly one; the name is up to you.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
