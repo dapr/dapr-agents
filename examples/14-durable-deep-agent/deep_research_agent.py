@@ -33,11 +33,13 @@ from dapr.ext.workflow import DaprWorkflowClient, WorkflowStatus
 from pydantic import BaseModel, Field
 
 from dapr_agents import DurableAgent, tool
-from dapr_agents.agents.configs import AgentExecutionConfig, ToolExecutionMode
+from dapr_agents.agents.configs import AgentExecutionConfig
 from dapr_agents.hooks import HookContext, Hooks
 from dapr_agents.workflow.runners import AgentRunner
 
 NOTES_STORE = "research-notes"
+# Key (not prefixed by the run id) that remembers which run owns the notes.
+ACTIVE_RUN_KEY = "active-run"
 RUN_ID = os.getenv("RESEARCH_RUN_ID", "deep-research-demo")
 # Pause after each saved note so there is time to press Ctrl+C in the demo.
 STEP_PAUSE_SECONDS = float(os.getenv("STEP_PAUSE_SECONDS", "8"))
@@ -171,19 +173,26 @@ def build_agents() -> tuple[DurableAgent, wf.WorkflowRuntime]:
             ),
         ],
         tools=[write_plan, save_note, list_notes, read_note, researcher],
-        # Three steps need about 15 LLM turns; the default cap is 10.
-        # Run tool calls one at a time so the steps happen in plan order.
-        execution=AgentExecutionConfig(
-            max_iterations=25,
-            tool_execution_mode=ToolExecutionMode.SEQUENTIAL,
-        ),
+        # Three steps need about 15 LLM turns; the default cap is 10. The
+        # prompt, not the framework, keeps the lead to one step at a time:
+        # tool_execution_mode only orders the results, because every tool call
+        # of a turn is scheduled before the first one is awaited.
+        execution=AgentExecutionConfig(max_iterations=25),
         hooks=llm_call_logger("lead"),
         runtime=runtime,
     )
     return lead, runtime
 
 
-RESUMABLE = (WorkflowStatus.RUNNING, WorkflowStatus.PENDING)
+# Runs that are not over. Starting the worker resumes RUNNING and PENDING runs
+# by itself; a SUSPENDED run needs an explicit resume. A STALLED run cannot
+# make progress with the current code, so it is reported, not waited on.
+UNFINISHED = (
+    WorkflowStatus.RUNNING,
+    WorkflowStatus.PENDING,
+    WorkflowStatus.SUSPENDED,
+    WorkflowStatus.STALLED,
+)
 
 
 def start_over_hint() -> str:
@@ -191,6 +200,40 @@ def start_over_hint() -> str:
         "To start a new run, use a new id: RESEARCH_RUN_ID=<new id> dapr run -f . "
         "(see 'Starting over' in the README)."
     )
+
+
+def quiet_workflow_loggers() -> None:
+    """Print each workflow-client message once, and only warnings and errors.
+
+    Each durabletask client and worker appends its own stderr handler to a
+    shared logger every time one is created, so propagate=False alone still
+    prints every message once per handler. Dropping those handlers lets the
+    root logger print each message once. Call this before the clients and the
+    worker are created (the level then hides their start-up chatter) and again
+    after, to remove the handlers they added.
+    """
+    for name in ("durabletask-client", "durabletask-worker", "WorkflowRuntime"):
+        noisy = logging.getLogger(name)
+        noisy.handlers.clear()
+        noisy.setLevel(logging.WARNING)
+
+
+def other_unfinished_run(client: DaprWorkflowClient) -> str | None:
+    """The id of another run that still owns the notes, if there is one."""
+    with DaprClient() as dapr:
+        owner = dapr.get_state(NOTES_STORE, ACTIVE_RUN_KEY).data
+    owner = owner.decode() if isinstance(owner, bytes) else owner
+    if not owner or owner == RUN_ID:
+        return None
+    state = client.get_workflow_state(owner, fetch_payloads=False)
+    if state is not None and state.runtime_status in UNFINISHED:
+        return owner
+    return None
+
+
+def claim_notes() -> None:
+    with DaprClient() as dapr:
+        dapr.save_state(NOTES_STORE, ACTIVE_RUN_KEY, RUN_ID)
 
 
 async def wait_for_run(client: DaprWorkflowClient):
@@ -221,6 +264,15 @@ def brief_text(state) -> str:
 
 def report(state, already_over: bool = False) -> None:
     status = state.runtime_status
+    if status == WorkflowStatus.STALLED:
+        print(
+            f"\nRun {RUN_ID} is stalled: the workflow engine cannot continue it "
+            "with the code that is running now (for example, the agent code "
+            "changed since the run started).",
+            flush=True,
+        )
+        print(start_over_hint(), flush=True)
+        return
     if already_over:
         print(f"\nRun {RUN_ID} is already over (status {status.name}).", flush=True)
     if status == WorkflowStatus.COMPLETED:
@@ -239,30 +291,51 @@ async def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
     )
-    for noisy in ("durabletask-client", "durabletask-worker", "WorkflowRuntime"):
-        logging.getLogger(noisy).propagate = False
+    quiet_workflow_loggers()
 
     topic = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TOPIC
     lead, runtime = build_agents()
     runner = AgentRunner()
     client = DaprWorkflowClient()
+    worker_started = False
+    scheduled = False
 
     try:
         # get_workflow_state returns None only when the id is unknown; any other
         # sidecar error propagates instead of being mistaken for "no run".
         previous = client.get_workflow_state(RUN_ID, fetch_payloads=False)
-        if previous is not None and previous.runtime_status not in RESUMABLE:
+        if previous is not None and previous.runtime_status not in UNFINISHED:
             report(client.get_workflow_state(RUN_ID), already_over=True)
             return
+        if previous is not None and previous.runtime_status == WorkflowStatus.STALLED:
+            report(previous)
+            return
+
+        # Starting the worker also resumes every other unfinished run, and the
+        # tools write under this process's RUN_ID. So another unfinished run
+        # would write its notes into this run's keys: refuse to mix them.
+        other = other_unfinished_run(client)
+        if other is not None:
+            print(
+                f"\nRun {other} is not finished and still owns the notes store. "
+                f"Finish it with RESEARCH_RUN_ID={other} dapr run -f ., or end it "
+                "first (see 'Starting over' in the README).",
+                flush=True,
+            )
+            return
+        claim_notes()
 
         # Start the workflow worker first: it resumes any unfinished run by itself.
         lead.start()
+        worker_started = True
         if previous is not None:
             logger.info(
                 "RESUME run %s found in workflow state (status=%s); not rescheduling",
                 RUN_ID,
                 previous.runtime_status.name,
             )
+            if previous.runtime_status == WorkflowStatus.SUSPENDED:
+                client.resume_workflow(RUN_ID)
         else:
             logger.info("START run %s on topic: %s", RUN_ID, topic)
             await runner.run(
@@ -271,21 +344,30 @@ async def main() -> None:
                 instance_id=RUN_ID,
                 wait=False,
             )
+            scheduled = True
 
+        quiet_workflow_loggers()
         state = await wait_for_run(client)
         if state is None:
             print(
-                f"\nRun {RUN_ID} is still going after {WAIT_TIMEOUT_SECONDS}s. "
-                "Start the same command again to keep waiting.",
+                f"\nRun {RUN_ID} is not finished after {WAIT_TIMEOUT_SECONDS}s, so "
+                "it is paused now. Run the same command again to continue it.",
                 flush=True,
             )
         else:
             report(state)
     finally:
-        runner.shutdown(lead)
-        # Both agents share this runtime, so the runner does not stop it, and its
-        # worker thread would keep the process alive after the brief is printed.
-        runtime.shutdown()
+        # Only shut down what was started. The runner manages the lead only if it
+        # scheduled the run; otherwise the lead was started directly.
+        if scheduled:
+            runner.shutdown(lead)
+        elif worker_started:
+            lead.stop()
+        if worker_started:
+            # Both agents share this runtime, so neither the runner nor the lead
+            # stops it, and its worker thread would keep the process alive.
+            runtime.shutdown()
+        client.close()
 
 
 if __name__ == "__main__":

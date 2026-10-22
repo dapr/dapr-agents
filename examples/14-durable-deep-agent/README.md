@@ -22,7 +22,7 @@ This example builds a deep-agent style research task as a plain `DurableAgent`, 
 
 ## Prerequisites
 
-- Python 3.11 to 3.13 and [`uv`](https://docs.astral.sh/uv/) (or `pip`)
+- Python 3.11 to 3.13 and [`uv`](https://docs.astral.sh/uv/)
 - The [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
 - An API key for an LLM provider. The example uses OpenAI by default (`OPENAI_API_KEY`); see [Switching LLM providers](#switching-llm-providers).
 
@@ -48,11 +48,11 @@ dapr init
 dapr init --slim
 ```
 
-With `--slim`, start the placement and scheduler services yourself in two separate terminals, and leave them running. Start them from this directory; the scheduler is given an explicit data directory here (`.dapr-data/`, git-ignored) instead of leaving a `data/` folder wherever it was started:
+With `--slim`, start the placement and scheduler services yourself in two separate terminals, and leave them running. Both listen on health port 8080 and metrics port 9090 by default, so the scheduler is moved to 8081 and 9091 here; without that, whichever starts second fails with "address already in use". Start them from this directory. The scheduler is given an explicit data directory (`.dapr-data/`, git-ignored) instead of leaving a `data/` folder wherever it was started:
 
 ```bash
 ~/.dapr/bin/placement
-~/.dapr/bin/scheduler --etcd-data-dir ./.dapr-data
+~/.dapr/bin/scheduler --etcd-data-dir ./.dapr-data --healthz-port 8081 --metrics-port 9091
 ```
 
 Set your key and run the example:
@@ -175,7 +175,15 @@ The simplest way to start a new run is a new id:
 RESEARCH_RUN_ID=my-second-run dapr run -f .
 ```
 
-To wipe everything instead, stop the app and delete the `*.db`, `*.db-shm` and `*.db-wal` files in this folder. If you use slim mode, also stop the scheduler and delete `.dapr-data/`: the scheduler keeps the jobs of old runs, and a leftover job could wake a run you deleted. A new `RESEARCH_RUN_ID` avoids that and is usually the better choice.
+If the previous run is **not finished** (for example you stopped it in the crash test and would rather abandon it than resume it), the app refuses to start a different id and tells you which run is still open. Starting the worker would resume the old run too, and its tools would write into the new run's note keys. Either resume the old run with the same command, or end it first:
+
+1. Start the app with the old id: `RESEARCH_RUN_ID=<old id> dapr run -f .`
+2. While it is running, end the run from a second terminal: `dapr workflow terminate -a deep-research-app <old id>`. This works only while the app that hosts the run is up. The app prints that the run ended with status TERMINATED and exits.
+3. Start the new run with a new id.
+
+A tool call that was in flight when you terminated the old run can still be redelivered once when the next process starts, and it writes one stray note under the new run's id. The new run overwrites it when it reaches that step.
+
+To wipe everything instead, stop the app and delete the `*.db`, `*.db-shm` and `*.db-wal` files in this folder. The scheduler keeps the jobs of old runs outside those files, and a leftover job could wake a run you deleted. In slim mode, stop the scheduler and delete `.dapr-data/` as well. With `dapr init` (Docker), the scheduler's data lives in the scheduler container, not in this folder, so deleting files here does not clear it. A new `RESEARCH_RUN_ID` avoids all of this and is usually the better choice.
 
 ## Switching LLM providers
 
