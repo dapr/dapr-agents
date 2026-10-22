@@ -61,25 +61,23 @@ uv sync --editable
 Sometimes you need to work with local changes from other Dapr repositories.
 
 ### Using Local Python Dapr Package Changes
-If you need to work with additional Python Dapr packages during local development,
-for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python),
-then you can follow the same steps above and then install your local versions.
-Adjust the paths as needed for your setup.
+If you need to work with local changes to the [python-sdk](https://github.com/dapr/python-sdk),
+follow the same steps above and then install your local version.
+Since 1.19 the workflow and FastAPI extensions ship inside the core `dapr` package as extras,
+and the durabletask client is vendored under `dapr/ext/workflow/_durabletask`, so one editable install covers all of them.
+Adjust the path as needed for your setup.
 
 ```bash
-uv pip install -e ../durabletask-python \
-   -e ../python-sdk \
-   -e ../python-sdk/ext/dapr-ext-fastapi \
-   -e ../python-sdk/ext/dapr-ext-workflow
+uv pip install -e "../python-sdk[fastapi,workflow]"
 ```
 
 You can also update `pyproject.toml` file to point to your local repo instead. For example, instead of:
 ```
-"durabletask-dapr=>0.2.0a15",
+"dapr[fastapi,workflow]>=1.19.0rc4,<1.20.0",
 ```
 You can use:
 ```
-"durabletask-dapr @ file:///Users/samcoyle/go/src/github.com/durabletask-python",
+"dapr[fastapi,workflow] @ file:///path/to/python-sdk",
 ```
 
 ### Using Local Dapr Runtime Changes
