@@ -129,12 +129,16 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_float_from_str(self):
         assert coerce_config_value("10.5", float) == 10.5
 
-    def test_coerce_config_value_bool_true_aliases(self):
-        for v in ("true", "TRUE", "True", "1", "yes", "YES", "Yes"):
+    def test_coerce_config_value_bool_case_insensitive_values(self):
+        for v in ("true", "TRUE", "True"):
             assert coerce_config_value(v, bool) is True
+        for v in ("false", "FALSE", "False"):
+            assert coerce_config_value(v, bool) is False
 
-    def test_coerce_config_value_bool_false_aliases(self):
-        for v in ("false", "FALSE", "False", "0", "no", "NO", "No"):
+    def test_coerce_config_value_bool_preserves_existing_aliases(self):
+        for v in ("1", "yes", "YES", "Yes"):
+            assert coerce_config_value(v, bool) is True
+        for v in ("0", "no", "NO", "No"):
             assert coerce_config_value(v, bool) is False
 
     def test_coerce_config_value_bool_invalid_raises(self):

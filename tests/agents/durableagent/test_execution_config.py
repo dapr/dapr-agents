@@ -225,6 +225,29 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
     @pytest.mark.parametrize(
         ("value", "expected"),
         [
+            (True, True),
+            ("true", True),
+            ("TRUE", True),
+            ("True", True),
+            (False, False),
+            ("false", False),
+            ("FALSE", False),
+            ("False", False),
+        ],
+    )
+    def test_execution_config_from_instantiation_accepts_case_insensitive_boolean_values(
+        self, value, expected
+    ):
+        """Test that execution config accepts native and case-insensitive booleans."""
+        execution_config = AgentExecutionConfig(streaming=value)
+
+        resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
+
+        assert resolved_config.streaming is expected
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
             ("1", True),
             ("yes", True),
             ("YES", True),
@@ -235,10 +258,10 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
             ("No", False),
         ],
     )
-    def test_execution_config_from_instantiation_accepts_boolean_aliases(
+    def test_execution_config_from_instantiation_preserves_existing_boolean_aliases(
         self, value, expected
     ):
-        """Test that execution config accepts case-insensitive string boolean aliases."""
+        """Test that execution config preserves existing boolean aliases."""
         execution_config = AgentExecutionConfig(streaming=value)
 
         resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
