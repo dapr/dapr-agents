@@ -271,7 +271,7 @@ class ClaudeEventMapper:
                 # the cumulative reading only when the caller did not say.
                 includes_prior = total >= prior
             if includes_prior and prior > 0.0:
-                cost = total - prior
+                cost = max(total - prior, 0.0)
                 session_total = total
             else:
                 # Per-run CLI total (SessionStore materialize / #900).

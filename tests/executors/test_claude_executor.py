@@ -396,6 +396,27 @@ class TestResume:
         assert events[-1].metadata["cost_usd"] == pytest.approx(0.50)
         assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.80)
 
+    async def test_store_resume_sums_prior_across_two_cost_states(self, cwd):
+        """Two store resumes leave two per-run cost-state entries; prior is their sum.
+
+        Without summing, ``last_total_cost`` would only see the latest run and
+        ``session_total_cost_usd`` would drop earlier runs.
+        """
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(
+            store,
+            executor,
+            {"type": "user", "uuid": "u1"},
+            {"type": "cost-state", "totalCostUSD": 0.20},
+            {"type": "user", "uuid": "u2"},
+            {"type": "cost-state", "totalCostUSD": 0.10},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.50)])
+        events = await _collect(executor, "third", session_id=SESSION_ID)
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.50)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.80)
+
     async def test_decision_resumes_pending_call_without_prompt(self, cwd):
         store = InMemorySessionStore()
         executor = _executor(

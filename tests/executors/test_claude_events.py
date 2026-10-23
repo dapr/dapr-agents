@@ -262,8 +262,15 @@ class TestResultMapping:
         assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.006)
         assert mapper.terminal.metadata["session_total_cost_usd"] == pytest.approx(0.01)
 
+    def test_cost_delta_clamped_when_cli_total_below_prior(self):
+        # Local-disk path assumes cumulative totals; never report negative.
+        mapper = _mapper(prior_cost_usd=1.0, cli_total_includes_prior=True)
+        mapper.map(result_message(total_cost_usd=0.25))
+        assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.0)
+        assert mapper.terminal.metadata["session_total_cost_usd"] == pytest.approx(0.25)
+
     def test_cost_uses_run_total_when_expensive_run_exceeds_prior(self):
-        # JeffreyJPZ edge case: per-run total >= prior must not subtract.
+        # A per-run total that is >= prior must not have the prior subtracted.
         mapper = _mapper(prior_cost_usd=0.30, cli_total_includes_prior=False)
         mapper.map(result_message(total_cost_usd=0.50))
         assert mapper.terminal.metadata["cost_usd"] == pytest.approx(0.50)
