@@ -87,6 +87,7 @@ from dapr_agents.agents.executors.claude_tools import ToolGate, build_tool_serve
 from dapr_agents.agents.executors.claude_transcript import (
     final_assistant_text,
     last_total_cost,
+    sum_cost_state_totals,
     last_user_prompt,
     pending_deferred_call,
 )
@@ -457,9 +458,14 @@ class ClaudeAgentExecutor(AgentExecutorBase):
         entries, exists, from_session_store = await self._find_transcript(sid)
         # Without a store there are no entries, so an unfinished turn cannot be
         # detected and the prompt is sent again on resume.
-        prior_cost = last_total_cost(entries) if entries else None
-        # SessionStore materialize (#900): CLI total is this run alone.
-        # Local-disk fallback keeps the CLI cost counter (cumulative).
+        # SessionStore materialize (#900): each cost-state is per-run → sum.
+        # Local-disk fallback keeps the CLI cost counter (cumulative) → last.
+        if not entries:
+            prior_cost = None
+        elif from_session_store:
+            prior_cost = sum_cost_state_totals(entries)
+        else:
+            prior_cost = last_total_cost(entries)
         if prior_cost is None:
             cli_includes_prior = None
         elif from_session_store:
