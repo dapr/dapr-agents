@@ -44,8 +44,8 @@ class FakeEnum(Enum):
     OPTION_C = "option_c"
 
 
-class TestCoerceConfigValue:
-    """Tests for coerce_config_value type coercion."""
+class TestValidateCaseInsensitiveBoolean:
+    """Tests for validate_case_insensitive_boolean."""
 
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -67,6 +67,10 @@ class TestCoerceConfigValue:
     def test_validate_case_insensitive_boolean_rejects_non_standard_values(self, value):
         with pytest.raises(ValueError):
             validate_case_insensitive_boolean(value)
+
+
+class TestCoerceConfigValue:
+    """Tests for coerce_config_value type coercion."""
 
     def test_coerce_config_value_str_passthrough(self):
         assert coerce_config_value("hello", str) == "hello"
@@ -125,12 +129,12 @@ class TestCoerceConfigValue:
     def test_coerce_config_value_float_from_str(self):
         assert coerce_config_value("10.5", float) == 10.5
 
-    def test_coerce_config_value_bool_true_variants(self):
-        for v in ("true", "True", "1", "yes"):
+    def test_coerce_config_value_bool_true_aliases(self):
+        for v in ("true", "TRUE", "True", "1", "yes", "YES", "Yes"):
             assert coerce_config_value(v, bool) is True
 
-    def test_coerce_config_value_bool_false_variants(self):
-        for v in ("false", "False", "0", "no"):
+    def test_coerce_config_value_bool_false_aliases(self):
+        for v in ("false", "FALSE", "False", "0", "no", "NO", "No"):
             assert coerce_config_value(v, bool) is False
 
     def test_coerce_config_value_bool_invalid_raises(self):

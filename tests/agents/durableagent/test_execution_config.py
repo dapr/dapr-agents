@@ -224,12 +224,21 @@ class TestExecutionConfigFromInstantiation(ExecutionConfigTestBase):
 
     @pytest.mark.parametrize(
         ("value", "expected"),
-        [("1", True), ("yes", True), ("0", False), ("no", False)],
+        [
+            ("1", True),
+            ("yes", True),
+            ("YES", True),
+            ("Yes", True),
+            ("0", False),
+            ("no", False),
+            ("NO", False),
+            ("No", False),
+        ],
     )
     def test_execution_config_from_instantiation_accepts_boolean_aliases(
         self, value, expected
     ):
-        """Test that execution config accepts string boolean aliases "1", "0", "yes", and "no"."""
+        """Test that execution config accepts case-insensitive string boolean aliases."""
         execution_config = AgentExecutionConfig(streaming=value)
 
         resolved_config = AgentExecutionConfig._from_instantiation(execution_config)
