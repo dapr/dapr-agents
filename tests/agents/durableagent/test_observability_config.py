@@ -179,6 +179,43 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
         assert resolved_config.logging_exporter == AgentLoggingExporter.CONSOLE
         assert resolved_config.endpoint is None
 
+    @pytest.mark.parametrize("field", ["enabled", "logging_enabled", "tracing_enabled"])
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (True, True),
+            ("true", True),
+            ("True", True),
+            ("TRUE", True),
+            (False, False),
+            ("false", False),
+            ("False", False),
+            ("FALSE", False),
+        ],
+    )
+    def test_observability_config_from_instantiation_accepts_boolean_values(
+        self, field, value, expected
+    ):
+        """Test that instantiation accepts native and case-insensitive boolean values."""
+        observability_config = AgentObservabilityConfig(**{field: value})
+
+        resolved_config = AgentObservabilityConfig._from_instantiation(
+            observability_config
+        )
+
+        assert getattr(resolved_config, field) is expected
+
+    @pytest.mark.parametrize("field", ["enabled", "logging_enabled", "tracing_enabled"])
+    @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
+    def test_observability_config_from_instantiation_rejects_otel_boolean_aliases(
+        self, field, value
+    ):
+        """Test that observability config rejects boolean aliases for `OTEL_*` fields during instantiation."""
+        observability_config = AgentObservabilityConfig(**{field: value})
+
+        with pytest.raises(ValueError, match=f"Invalid value for key '{field}'"):
+            AgentObservabilityConfig._from_instantiation(observability_config)
+
     def test_observability_config_from_instantiation_does_not_mutate_input_config(self):
         """Test that observability config resolution copies and leaves the caller's config untouched."""
         observability_config = AgentObservabilityConfig(
@@ -485,6 +522,21 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.enabled is (not expected)
         assert resolved_config.logging_enabled is expected
         assert resolved_config.tracing_enabled is expected
+
+    @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
+    def test_observability_config_from_env_rejects_otel_boolean_aliases(
+        self, value, monkeypatch
+    ):
+        """Test that observability config rejects boolean aliases for `OTEL_*` environment variables."""
+        monkeypatch.setenv("OTEL_SDK_DISABLED", value)
+        monkeypatch.setenv("OTEL_LOGGING_ENABLED", value)
+        monkeypatch.setenv("OTEL_TRACING_ENABLED", value)
+
+        resolved_config = AgentObservabilityConfig._from_env()
+
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
     def test_observability_config_from_env_ignores_empty_boolean_values(
         self, monkeypatch
@@ -823,18 +875,20 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
     @pytest.mark.parametrize(
         ("value", "expected"),
         [
+            (True, True),
             ("true", True),
             ("TRUE", True),
             ("True", True),
+            (False, False),
             ("false", False),
             ("FALSE", False),
             ("False", False),
         ],
     )
-    def test_observability_config_from_statestore_accepts_case_insensitive_boolean_values(
+    def test_observability_config_from_statestore_accepts_boolean_values(
         self, value, expected
     ):
-        """Test that observability config accepts case-insensitive boolean runtime config values."""
+        """Test that state store config accepts native and case-insensitive boolean values."""
         runtime_config = {
             "OTEL_SDK_DISABLED": value,
             "OTEL_LOGGING_ENABLED": value,
@@ -846,6 +900,21 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.enabled is (not expected)
         assert resolved_config.logging_enabled is expected
         assert resolved_config.tracing_enabled is expected
+
+    @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
+    def test_observability_config_from_statestore_rejects_otel_boolean_aliases(self, value):
+        """Test that observability config rejects boolean aliases for `OTEL_*` config values."""
+        runtime_config = {
+            "OTEL_SDK_DISABLED": value,
+            "OTEL_LOGGING_ENABLED": value,
+            "OTEL_TRACING_ENABLED": value,
+        }
+
+        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
+
+        assert resolved_config.enabled is None
+        assert resolved_config.logging_enabled is None
+        assert resolved_config.tracing_enabled is None
 
     def test_observability_config_from_statestore_ignores_empty_boolean_values(self):
         """Test that observability config ignores empty boolean runtime config values."""

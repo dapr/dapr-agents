@@ -47,6 +47,21 @@ def is_supported_config_key(key: str) -> bool:
     return any(pattern.fullmatch(key) for pattern in _CONFIG_KEY_PATTERNS)
 
 
+def _validate_case_insensitive_boolean(value: Any) -> bool:
+    """Validate a boolean value using only case-insensitive ``true``/``false`` strings."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.casefold()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    raise ValueError(
+        f"Value must be a case-insensitive 'true' or 'false', got {value!r}"
+    )
+
+
 def coerce_integral(value: Any) -> int:
     """Convert a value that represents an exact integer to an ``int``.
 

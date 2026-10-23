@@ -709,6 +709,61 @@ class TestOtelHotReload:
         basic_agent._apply_config_update("otel_sdk_disabled", "false")
         assert basic_agent._agent_observability.enabled is True
 
+    @pytest.mark.parametrize(
+        ("key", "attribute", "initial_value"),
+        [
+            ("otel_sdk_disabled", "enabled", True),
+            ("otel_tracing_enabled", "tracing_enabled", False),
+            ("otel_logging_enabled", "logging_enabled", True),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (True, True),
+            ("true", True),
+            ("True", True),
+            ("TRUE", True),
+            (False, False),
+            ("false", False),
+            ("False", False),
+            ("FALSE", False),
+        ],
+    )
+    def test_otel_boolean_values_are_accepted(
+        self, basic_agent, key, attribute, initial_value, value, expected
+    ):
+        """OTel settings accept only native booleans or case-insensitive `"true"`/`"false"` strings."""
+        expected_value = not expected if key == "otel_sdk_disabled" else expected
+        setattr(basic_agent._agent_observability, attribute, initial_value)
+
+        assert basic_agent._apply_config_update(key, value) is True
+        assert getattr(basic_agent._agent_observability, attribute) is expected_value
+
+    @pytest.mark.parametrize(
+        ("key", "attribute", "initial_value"),
+        [
+            ("otel_sdk_disabled", "enabled", True),
+            ("otel_tracing_enabled", "tracing_enabled", False),
+            ("otel_logging_enabled", "logging_enabled", True),
+        ],
+    )
+    @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
+    def test_otel_boolean_aliases_are_rejected_with_warning(
+        self, basic_agent, key, attribute, initial_value, value, caplog
+    ):
+        setattr(basic_agent._agent_observability, attribute, initial_value)
+
+        with caplog.at_level(logging.WARNING):
+            assert basic_agent._apply_config_update(key, value) is False
+
+        assert any(
+            record.levelno == logging.WARNING
+            and "skipping config update" in record.message
+            for record in caplog.records
+        )
+        assert getattr(basic_agent._agent_observability, attribute) is initial_value
+
     def test_otel_endpoint_setter(self, basic_agent):
         basic_agent._apply_config_update(
             "otel_exporter_otlp_endpoint", "http://collector:4317"
