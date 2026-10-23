@@ -96,7 +96,11 @@ from opentelemetry import trace
 from opentelemetry import _logs
 from opentelemetry.sdk._logs import LoggingHandler
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import (
+    BatchSpanProcessor,
+    ConsoleSpanExporter,
+    SpanExporter,
+)
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
     OTLPSpanExporter as OTLPGrpcSpanExporter,
 )
@@ -1913,13 +1917,13 @@ class AgentBase:
         if config.logging_enabled:
             logger_provider = LoggerProvider(resource=resource)
 
-            _exporter = config.logging_exporter
-            if _endpoint == "" and _exporter != "console":
+            _log_exporter = config.logging_exporter
+            if _endpoint == "" and _log_exporter != "console":
                 raise ValueError(
                     "OTEL_ENDPOINT must be set when OTEL_LOGGING_EXPORTER is not 'console'"
                 )
 
-            match _exporter:
+            match _log_exporter:
                 case AgentLoggingExporter.OTLP_GRPC:
                     log_processor = BatchLogRecordProcessor(
                         OTLPGrpcLogExporter(endpoint=_endpoint, headers=otlp_headers)
@@ -1953,13 +1957,14 @@ class AgentBase:
         if config.tracing_enabled:
             tracer_provider = TracerProvider(resource=resource)
 
-            _exporter = config.tracing_exporter
-            if _endpoint == "" and _exporter != "console":
+            _trace_exporter = config.tracing_exporter
+            if _endpoint == "" and _trace_exporter != "console":
                 raise ValueError(
                     "OTEL_ENDPOINT must be set when OTEL_TRACING_EXPORTER is not 'console'"
                 )
 
-            match _exporter:
+            tracing_exporter: SpanExporter
+            match _trace_exporter:
                 case AgentTracingExporter.OTLP_GRPC:
                     tracing_exporter = OTLPGrpcSpanExporter(
                         endpoint=_endpoint, headers=otlp_headers
