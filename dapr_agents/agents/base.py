@@ -86,7 +86,7 @@ from dapr_agents.types import (
 )
 from dapr_agents.utils._config import (
     ConfigFieldDescriptor,
-    _validate_case_insensitive_boolean,
+    validate_case_insensitive_boolean,
     apply_config_update,
     is_supported_config_key,
 )
@@ -241,7 +241,7 @@ class AgentBase:
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "enabled", not v
             ),
-            pre_validator=_validate_case_insensitive_boolean,
+            pre_validator=validate_case_insensitive_boolean,
             triggers_otel_reload=True,
         ),
         RuntimeConfigKey.OTEL_EXPORTER_OTLP_ENDPOINT: ConfigFieldDescriptor(
@@ -269,7 +269,7 @@ class AgentBase:
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "tracing_enabled", v
             ),
-            pre_validator=_validate_case_insensitive_boolean,
+            pre_validator=validate_case_insensitive_boolean,
             triggers_otel_reload=True,
         ),
         RuntimeConfigKey.OTEL_TRACES_EXPORTER: ConfigFieldDescriptor(
@@ -285,7 +285,7 @@ class AgentBase:
             setter=lambda agent, v: setattr(
                 agent._agent_observability, "logging_enabled", v
             ),
-            pre_validator=_validate_case_insensitive_boolean,
+            pre_validator=validate_case_insensitive_boolean,
             triggers_otel_reload=True,
         ),
         RuntimeConfigKey.OTEL_LOGS_EXPORTER: ConfigFieldDescriptor(

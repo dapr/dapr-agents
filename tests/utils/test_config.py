@@ -22,7 +22,7 @@ import pytest
 
 from dapr_agents.utils._config import (
     ConfigFieldDescriptor,
-    _validate_case_insensitive_boolean,
+    validate_case_insensitive_boolean,
     apply_config_map,
     apply_config_update,
     coerce_config_value,
@@ -61,12 +61,12 @@ class TestCoerceConfigValue:
     def test_validate_case_insensitive_boolean_accepts_standard_values(
         self, value, expected
     ):
-        assert _validate_case_insensitive_boolean(value) is expected
+        assert validate_case_insensitive_boolean(value) is expected
 
     @pytest.mark.parametrize("value", ["1", "0", "yes", "no", " true ", "maybe"])
     def test_validate_case_insensitive_boolean_rejects_non_standard_values(self, value):
         with pytest.raises(ValueError):
-            _validate_case_insensitive_boolean(value)
+            validate_case_insensitive_boolean(value)
 
     def test_coerce_config_value_str_passthrough(self):
         assert coerce_config_value("hello", str) == "hello"

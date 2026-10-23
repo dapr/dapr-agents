@@ -1205,7 +1205,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     os.environ, "OTEL_SDK_DISABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
@@ -1245,7 +1245,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     os.environ, "OTEL_LOGGING_ENABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 raise_on_error=False,
             ),
             _EnvConfigKey.OTEL_LOGS_EXPORTER: config_utils.ConfigFieldDescriptor(
@@ -1264,7 +1264,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     os.environ, "OTEL_TRACING_ENABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 raise_on_error=False,
             ),
             _EnvConfigKey.OTEL_TRACES_EXPORTER: config_utils.ConfigFieldDescriptor(
@@ -1306,7 +1306,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "enabled", v),
                 getter=lambda: instantiated_config.enabled,
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
             ),
             "headers": config_utils.ConfigFieldDescriptor(
                 target_type=dict[str, str],
@@ -1340,7 +1340,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "logging_enabled", v),
                 getter=lambda: instantiated_config.logging_enabled,
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
             ),
             "logging_exporter": config_utils.ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1352,7 +1352,7 @@ class AgentObservabilityConfig:
                 target_type=Optional[bool],
                 setter=lambda obj, v: setattr(obj, "tracing_enabled", v),
                 getter=lambda: instantiated_config.tracing_enabled,
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
             ),
             "tracing_exporter": config_utils.ConfigFieldDescriptor(
                 target_type=Optional[str],
@@ -1390,7 +1390,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     runtime_config, "OTEL_SDK_DISABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 validator=lambda v: (
                     v if v is None else not v
                 ),  # Invert the disabled flag to set enabled
@@ -1431,7 +1431,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     runtime_config, "OTEL_LOGGING_ENABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_LOGS_EXPORTER: config_utils.ConfigFieldDescriptor(
@@ -1450,7 +1450,7 @@ class AgentObservabilityConfig:
                 getter=lambda: config_utils.get_config_value(
                     runtime_config, "OTEL_TRACING_ENABLED"
                 ),
-                pre_validator=config_utils._validate_case_insensitive_boolean,
+                pre_validator=config_utils.validate_case_insensitive_boolean,
                 raise_on_error=False,
             ),
             RuntimeConfigKey.OTEL_TRACES_EXPORTER: config_utils.ConfigFieldDescriptor(

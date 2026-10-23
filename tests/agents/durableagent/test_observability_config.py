@@ -193,10 +193,11 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
             ("FALSE", False),
         ],
     )
-    def test_observability_config_from_instantiation_accepts_boolean_values(
+    def test_observability_config_from_instantiation_accepts_otel_boolean_values(
         self, field, value, expected
     ):
-        """Test that instantiation accepts native and case-insensitive boolean values."""
+        """Test that observability config accepts native booleans
+        and case-insensitive `"true"`/`"false"` strings for OTel boolean values."""
         observability_config = AgentObservabilityConfig(**{field: value})
 
         resolved_config = AgentObservabilityConfig._from_instantiation(
@@ -210,7 +211,7 @@ class TestObservabilityConfigFromInstantiation(ObservabilityConfigTestBase):
     def test_observability_config_from_instantiation_rejects_otel_boolean_aliases(
         self, field, value
     ):
-        """Test that observability config rejects boolean aliases for `OTEL_*` fields during instantiation."""
+        """Test that observability config rejects boolean aliases for OTel boolean values during instantiation."""
         observability_config = AgentObservabilityConfig(**{field: value})
 
         with pytest.raises(ValueError, match=f"Invalid value for key '{field}'"):
@@ -509,10 +510,11 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
             ("False", False),
         ],
     )
-    def test_observability_config_from_env_accepts_case_insensitive_boolean_values(
+    def test_observability_config_from_env_accepts_case_insensitive_otel_boolean_values(
         self, value, expected, monkeypatch
     ):
-        """Test that observability config accepts case-insensitive boolean environment values."""
+        """Test that observability config accepts case-insensitive `"true"`/`"false"`
+        for OTel boolean values."""
         monkeypatch.setenv("OTEL_SDK_DISABLED", value)
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", value)
         monkeypatch.setenv("OTEL_TRACING_ENABLED", value)
@@ -524,16 +526,31 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is expected
 
     @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
-    def test_observability_config_from_env_rejects_otel_boolean_aliases(
-        self, value, monkeypatch
+    def test_observability_config_from_env_ignores_otel_boolean_aliases_and_warns(
+        self, value, monkeypatch, caplog
     ):
-        """Test that observability config rejects boolean aliases for `OTEL_*` environment variables."""
+        """Test that observability config ignores and warns on boolean aliases for OTel boolean values."""
         monkeypatch.setenv("OTEL_SDK_DISABLED", value)
         monkeypatch.setenv("OTEL_LOGGING_ENABLED", value)
         monkeypatch.setenv("OTEL_TRACING_ENABLED", value)
 
-        resolved_config = AgentObservabilityConfig._from_env()
+        with caplog.at_level(logging.WARNING):
+            resolved_config = AgentObservabilityConfig._from_env()
 
+        warning_messages = [
+            record.message
+            for record in caplog.records
+            if "Ignoring failed config update" in record.message
+        ]
+        expected_keys = (
+            "otel_sdk_disabled",
+            "otel_logging_enabled",
+            "otel_tracing_enabled",
+        )
+        assert len(warning_messages) == 3
+        assert all(
+            any(key in message for message in warning_messages) for key in expected_keys
+        )
         assert resolved_config.enabled is None
         assert resolved_config.logging_enabled is None
         assert resolved_config.tracing_enabled is None
@@ -885,10 +902,11 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
             ("False", False),
         ],
     )
-    def test_observability_config_from_statestore_accepts_boolean_values(
+    def test_observability_config_from_statestore_accepts_otel_boolean_values(
         self, value, expected
     ):
-        """Test that state store config accepts native and case-insensitive boolean values."""
+        """Test that observability config accepts case-insensitive `"true"`/`"false"` strings
+        for OTel boolean values."""
         runtime_config = {
             "OTEL_SDK_DISABLED": value,
             "OTEL_LOGGING_ENABLED": value,
@@ -902,16 +920,33 @@ class TestObservabilityConfigFromStateStore(ObservabilityConfigTestBase):
         assert resolved_config.tracing_enabled is expected
 
     @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
-    def test_observability_config_from_statestore_rejects_otel_boolean_aliases(self, value):
-        """Test that observability config rejects boolean aliases for `OTEL_*` config values."""
+    def test_observability_config_from_statestore_ignores_otel_boolean_aliases_and_warns(
+        self, value, caplog
+    ):
+        """Test that observability config ignores and warns on boolean aliases for OTel boolean values."""
         runtime_config = {
             "OTEL_SDK_DISABLED": value,
             "OTEL_LOGGING_ENABLED": value,
             "OTEL_TRACING_ENABLED": value,
         }
 
-        resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
+        with caplog.at_level(logging.WARNING):
+            resolved_config = AgentObservabilityConfig._from_statestore(runtime_config)
 
+        warning_messages = [
+            record.message
+            for record in caplog.records
+            if "Ignoring failed config update" in record.message
+        ]
+        expected_keys = (
+            "otel_sdk_disabled",
+            "otel_logging_enabled",
+            "otel_tracing_enabled",
+        )
+        assert len(warning_messages) == 3
+        assert all(
+            any(key in message for message in warning_messages) for key in expected_keys
+        )
         assert resolved_config.enabled is None
         assert resolved_config.logging_enabled is None
         assert resolved_config.tracing_enabled is None
