@@ -2504,3 +2504,85 @@ class TestCallLlmRedelivery:
         assert "task_execution_id" in class_members(
             "dapr/ext/workflow/_durabletask/task.py", "ActivityContext"
         )
+
+
+class TestPublishStreamEventStateConflict:
+    """publish_stream_event must keep a concurrent write and still emit.
+
+    ask_user schedules this activity without a retry policy, so a state
+    conflict while recording a pending input is re-applied on fresh state
+    inside the activity instead of failing it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(self, monkeypatch):
+        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        mock_client = MockDaprClient()
+        mock_client.get_state.return_value = Mock(data=None)
+        monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
+        monkeypatch.setattr(
+            "dapr_agents.storage.daprstores.base.default_dapr_client_factory",
+            lambda: mock_client,
+        )
+        monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
+        yield
+        os.environ.pop("OPENAI_API_KEY", None)
+
+    @pytest.fixture
+    def store(self):
+        store = FakeEtagStateStore()
+        store.store_name = "teststatestore"
+        return store
+
+    @pytest.fixture
+    def agent(self, store):
+        llm = Mock(spec=OpenAIChatClient)
+        llm.prompt_template = None
+        llm.provider = "openai"
+        llm.api = "MockOpenAIAPI"
+        llm.model = "gpt-4o-mock"
+        return DurableAgent(
+            name="StreamAgent",
+            role="Test",
+            goal="Test",
+            instructions=["x"],
+            llm=llm,
+            state=AgentStateConfig(store=store),
+        )
+
+    def test_conflict_reapplies_pending_input_and_emits(
+        self, agent, store, monkeypatch
+    ):
+        instance_id = "wf-stream-1"
+        entry = agent._infra.get_state(instance_id)
+        entry.stream_context = {"root_instance_id": instance_id, "depth": 0}
+        agent._infra.save_state(instance_id, entry=entry)
+        key = f"{agent._infra.state_key_prefix}_{instance_id}".lower()
+
+        real_save = store.save
+        injected = {"done": False}
+
+        def save_after_concurrent_write(**kwargs):
+            if kwargs["key"] == key and not injected["done"]:
+                # Another writer commits between our read and our save.
+                injected["done"] = True
+                current, _ = store.load_with_etag(key=key)
+                current["pending_inputs"]["req-other"] = {"request_id": "req-other"}
+                store.seed(key, current)
+            real_save(**kwargs)
+
+        monkeypatch.setattr(store, "save", save_after_concurrent_write)
+        emitter = Mock()
+        with patch.object(agent, "_build_stream_emitter", return_value=emitter):
+            agent.publish_stream_event(
+                Mock(spec=WorkflowActivityContext),
+                {
+                    "instance_id": instance_id,
+                    "event_type": "user_input_requested",
+                    "event_data": {"request_id": "req-1", "question": "q?"},
+                },
+            )
+
+        pending = agent._infra.get_state(instance_id).pending_inputs
+        assert set(pending) == {"req-other", "req-1"}
+        emitter.emit_event.assert_called_once()
