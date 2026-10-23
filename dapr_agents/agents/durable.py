@@ -19,7 +19,18 @@ import inspect
 import json
 import threading
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypeAlias,
+    Union,
+)
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -240,7 +251,7 @@ BUILTIN_TOOL_FACTORIES: Dict[str, Callable[[Any], Any]] = {
     ),
 }
 
-_DispatchKind = Literal["activity", "workflow", "agent_workflow"]
+_DispatchKind: TypeAlias = Literal["activity", "workflow", "agent_workflow"]
 
 _STREAMING_ALPHA_WARNED = False
 
@@ -892,13 +903,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         ] = (  # kwarg name, not metadata key
                                             child_stream_ctx
                                         )
-                                    workflow_meta.append(
-                                        {
-                                            "order": idx,
-                                            "tool_call": tc,
-                                            "child_instance_id": child_instance_id,
-                                        }
-                                    )
+                                    meta = {
+                                        "order": idx,
+                                        "tool_call": tc,
+                                        "child_instance_id": child_instance_id,
+                                    }
+                                    workflow_meta.append(meta)
                                     if (
                                         self.execution.tool_execution_mode
                                         == ToolExecutionMode.SEQUENTIAL
@@ -909,12 +919,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                                 lambda tool_obj=tool_obj, call_kwargs=call_kwargs: (
                                                     tool_obj(**call_kwargs)
                                                 ),
-                                                workflow_meta[-1],
+                                                meta,
                                                 None,
                                             )
                                         )
                                     else:
-                                        workflow_meta[-1]["dispatch_time"] = (
+                                        meta["dispatch_time"] = (
                                             ctx.current_utc_datetime.isoformat()
                                         )
                                         workflow_tasks.append(tool_obj(**call_kwargs))
