@@ -22,7 +22,10 @@ into ``AgentEvent`` values. Requires the optional ``claude`` extra::
 
 Sessions: every run uses a UUID session id. When a ``session_store`` is
 configured the transcript is mirrored into it, and a later run with the
-same ``session_id`` resumes from the store on any host. Inside a
+same ``session_id`` resumes from the store on any host. When the store has
+no entries for a session the CLI already has on local disk (an earlier
+attempt stopped before its transcript was mirrored), that local session is
+resumed rather than started again under the same id. Inside a
 ``DurableAgent`` the store is scoped by agent name, so the CLI's ``cwd``
 does not affect which session is found.
 
@@ -37,11 +40,25 @@ from __future__ import annotations
 import asyncio
 import collections
 import dataclasses
+import glob
+import json
 import logging
 import os
+import unicodedata
 import uuid
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Deque, Dict, List, Mapping, Optional, cast
+from pathlib import Path
+from typing import (
+    Any,
+    AsyncGenerator,
+    Deque,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    cast,
+)
 
 try:
     from claude_agent_sdk import (
@@ -70,6 +87,7 @@ from dapr_agents.agents.executors.claude_tools import ToolGate, build_tool_serve
 from dapr_agents.agents.executors.claude_transcript import (
     final_assistant_text,
     last_total_cost,
+    last_user_prompt,
     pending_deferred_call,
 )
 from dapr_agents.agents.executors.event import (
@@ -87,6 +105,8 @@ logger = logging.getLogger(__name__)
 # (the Claude CLI only accepts UUIDs).
 _SESSION_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "dapr-agents/claude-session")
 _STDERR_TAIL_LINES = 20
+# Longest project directory name the CLI writes before it adds a hash suffix.
+_MAX_PROJECT_KEY_LENGTH = 200
 # Sent to continue a session that stopped after a tool result; a resume
 # without a prompt waits for input. Matches the CLI's own wording.
 CONTINUE_PROMPT = "Continue from where you left off."
@@ -209,7 +229,7 @@ class ClaudeAgentExecutor(AgentExecutorBase):
         """
         decisions = tool_decisions_from_context(context)
         try:
-            plan = await self._plan(session_id, decisions)
+            plan = await self._plan(session_id, decisions, prompt)
         except Exception as exc:  # noqa: BLE001 - surfaced as an error event
             logger.exception("Failed to prepare Claude session %s", session_id)
             plan = _RunPlan(session_id=session_id or "", error=str(exc))
@@ -328,21 +348,93 @@ class ClaudeAgentExecutor(AgentExecutorBase):
     # Planning
     # ------------------------------------------------------------------
 
-    async def _load_transcript(self, sid: str) -> Optional[List[Any]]:
+    async def _find_transcript(
+        self, sid: str
+    ) -> Tuple[Optional[List[Dict[str, Any]]], bool]:
+        """
+        Return ``(entries, exists)`` for ``sid``.
+
+        ``entries`` come from the session store, or from the CLI's local
+        transcript when the store has none for a session the CLI already
+        holds. Without a store, ``entries`` is ``None`` and only existence
+        on local disk is checked.
+
+        Local entries are only read, never copied into the store, and they
+        carry no cost record, so a resumed run reports no prior cost.
+        """
         store = self._config.session_store
         if store is None:
-            return None
+            exists = await asyncio.to_thread(self._local_session_exists, sid)
+            return None, exists
         key = {"project_key": self.project_key, "session_id": sid}
-        return await store.load(key)
+        entries = await store.load(key)
+        if entries:
+            return entries, True
+        local = await asyncio.to_thread(self._read_local_transcript, sid)
+        if local is None:
+            return entries, False
+        logger.info(
+            "Session store has no entries for Claude session %s; "
+            "resuming the CLI's local transcript",
+            sid,
+        )
+        return local, True
 
-    async def _session_exists(self, sid: str, entries: Optional[List[Any]]) -> bool:
-        if self._config.session_store is not None:
-            return bool(entries)
-        info = await asyncio.to_thread(get_session_info, sid, directory=self.cwd)
-        return info is not None
+    def _cli_config_dir(self) -> Path:
+        """The config directory the CLI process keeps its transcripts in."""
+        env = self._config.cli_env()
+        configured = env.get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+        if configured:
+            # The SDK and the CLI both NFC-normalize this path.
+            return Path(unicodedata.normalize("NFC", configured))
+        home = env.get("HOME")
+        return (Path(home) if home else Path.home()) / ".claude"
+
+    def _local_transcript_path(self, sid: str) -> Path:
+        projects = self._cli_config_dir() / "projects"
+        path = projects / self.project_key / f"{sid}.jsonl"
+        if len(self.project_key) <= _MAX_PROJECT_KEY_LENGTH or path.is_file():
+            return path
+        # For long cwds the CLI and the SDK hash the key's suffix differently,
+        # so match on the shared prefix as the SDK does.
+        prefix = self.project_key[:_MAX_PROJECT_KEY_LENGTH]
+        matches = sorted(projects.glob(f"{glob.escape(prefix)}-*/{sid}.jsonl"))
+        return matches[0] if matches else path
+
+    def _local_session_exists(self, sid: str) -> bool:
+        if self._local_transcript_path(sid).is_file():
+            return True
+        return get_session_info(sid, directory=self.cwd) is not None
+
+    def _read_local_transcript(self, sid: str) -> Optional[List[Dict[str, Any]]]:
+        """Entries of the CLI's local transcript, or ``None`` if there is none."""
+        path = self._local_transcript_path(sid)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            # The file is there, so its id is taken: resume without entries.
+            logger.warning("Cannot read Claude transcript %s: %s", path, exc)
+            return []
+        entries: List[Dict[str, Any]] = []
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                # A line the CLI was still writing when it stopped.
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+        return entries
 
     async def _plan(
-        self, session_id: Optional[str], decisions: Mapping[str, ToolCallDecision]
+        self,
+        session_id: Optional[str],
+        decisions: Mapping[str, ToolCallDecision],
+        prompt: str,
     ) -> _RunPlan:
         if session_id is None:
             if decisions:
@@ -352,13 +444,25 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             return _RunPlan(session_id=str(uuid.uuid4()), send_prompt=True)
 
         sid = session_uuid(session_id)
-        entries = await self._load_transcript(sid)
-        exists = await self._session_exists(sid, entries)
+        entries, exists = await self._find_transcript(sid)
+        # Without a store there are no entries, so an unfinished turn cannot be
+        # detected and the prompt is sent again on resume.
         prior_cost = last_total_cost(entries) if entries else None
         if not decisions:
             if not exists:
                 logger.info("Starting Claude session %s", sid)
             stale = pending_deferred_call(entries) if entries else None
+            if stale is None and entries and _unfinished_turn_for(entries, prompt):
+                # An earlier attempt of this run stopped mid-turn; sending
+                # the prompt again would make the model see it twice.
+                logger.info("Continuing unfinished turn of Claude session %s", sid)
+                return _RunPlan(
+                    session_id=sid,
+                    resume=True,
+                    send_prompt=True,
+                    prompt=CONTINUE_PROMPT,
+                    prior_cost_usd=prior_cost,
+                )
             return _RunPlan(
                 session_id=sid,
                 resume=exists,
@@ -468,6 +572,24 @@ class ClaudeAgentExecutor(AgentExecutorBase):
             session_id=None if plan.resume else plan.session_id,
             **dict(cfg.extra_options),
         )
+
+
+def _unfinished_turn_for(entries: List[Dict[str, Any]], prompt: str) -> bool:
+    """
+    Whether the transcript's last turn was started by ``prompt`` and has no answer.
+
+    A retry cannot be told apart from a caller repeating its last message, so
+    this only applies when that turn never answered: continuing it then has
+    the same effect as sending the message again, without the duplicate.
+    A turn that stopped on a tool call (for example at its turn limit) also
+    has no answer, so a repeat of its prompt continues it too.
+    """
+    last = last_user_prompt(entries)
+    return (
+        last is not None
+        and last.strip() == prompt.strip()
+        and final_assistant_text(entries) is None
+    )
 
 
 def _approval_dict(gate: ToolGate, call_id: str) -> Optional[Dict[str, Any]]:
