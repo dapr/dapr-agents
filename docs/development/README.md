@@ -261,7 +261,7 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
 uv run ruff format
@@ -270,7 +270,7 @@ uv run ruff format
 uv run mypy --config-file mypy.ini
 
 ## Run all combined
-uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
+uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
 ```
 
 ## Pre-Push Hooks
@@ -321,10 +321,11 @@ make hooks-run
 make hooks-run-all
 
 # Run individual checks (same commands as before)
-uv run ruff format dapr_agents tests
-uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run ruff format
+uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 uv run mypy --config-file mypy.ini
 uv run pytest tests -m "not integration"
+DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
 ```
 
 ### Skipping Hooks (Emergency Only)
@@ -361,7 +362,7 @@ git push --no-verify
 ### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
-   uv sync --group test
+   uv sync --group test --extra drasi
    ```
 
 2. Run tests before making changes:
@@ -373,7 +374,7 @@ git push --no-verify
 
 4. Run code quality checks:
    ```bash
-   uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+   uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
    uv run ruff format
    uv run mypy --config-file mypy.ini
    ```
@@ -381,6 +382,7 @@ git push --no-verify
 5. Run tests again:
    ```bash
    uv run pytest tests -m "not integration"
+   DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
    ```
 
 6. Submit your changes
