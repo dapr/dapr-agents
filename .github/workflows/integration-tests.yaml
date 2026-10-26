@@ -22,12 +22,15 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  issues: write
 
 jobs:
   integration-tests:
     runs-on: ubuntu-latest
+    # pulls.get needs pull-requests:read; checkout needs contents:read.
+    # No GITHUB_TOKEN writes in this job.
+    permissions:
+      contents: read
+      pull-requests: read
     strategy:
       fail-fast: false
       matrix:
