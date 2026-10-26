@@ -31,10 +31,7 @@ from pydantic_core import to_jsonable_python
 
 from dapr_agents.streaming.keys import MESSAGE_METADATA as METADATA_KEY
 from dapr_agents.types.message import EventMessageMetadata
-from dapr_agents.workflow.utils.core import (
-    is_supported_model_instance,
-    stable_json_sha256,
-)
+from dapr_agents.workflow.utils.core import stable_json_sha256
 from dapr_agents.workflow.utils.event_routes import (
     EventRouteResolutionError,
     HookVerdict,
@@ -46,6 +43,7 @@ from dapr_agents.workflow.utils.routers import (
     extract_cloudevent_data,
     validate_message_model,
 )
+from dapr_agents.utils.models import is_supported_model_instance
 
 logger = logging.getLogger(__name__)
 
