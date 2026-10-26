@@ -122,13 +122,6 @@ class _Unset:
 # Temporary sentinel used during instantiated config construction to track caller-omitted fields.
 _UNSET: Final[_Unset] = _Unset()
 
-
-def _resolve_unset(value: T | _Unset, default: T) -> T:
-    if isinstance(value, _Unset):
-        return default
-    return value
-
-
 _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS = (
     "max_iterations",
     "tool_choice",
@@ -136,6 +129,12 @@ _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS = (
     "orchestration_mode",
     "max_grpc_inbound_message_size_bytes",
 )
+
+
+def _resolve_unset(value: T | _Unset, default: T) -> T:
+    if isinstance(value, _Unset):
+        return default
+    return value
 
 
 @dataclass
