@@ -17,6 +17,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.constants import AGENT_DEFAULT_MAX_ITERATIONS
 from dapr_agents.agents.configs import AgentExecutionConfig, AgentMemoryConfig
 from dapr_agents.memory import ConversationListMemory
 from dapr_agents.llm import OpenAIChatClient
@@ -96,7 +97,7 @@ class TestAgentBaseClass:
             "Test instruction 1",
             "Test instruction 2",
         ]
-        assert basic_agent.execution.max_iterations == 10
+        assert basic_agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
         assert basic_agent.prompting_helper.template_format == "jinja2"
         assert isinstance(basic_agent.memory, ConversationListMemory)
         assert basic_agent.llm is not None
@@ -427,7 +428,7 @@ class TestAgentBaseClass:
 
     def test_max_iterations_default(self, minimal_agent):
         """Test default max iterations."""
-        assert minimal_agent.execution.max_iterations == 10
+        assert minimal_agent.execution.max_iterations == AGENT_DEFAULT_MAX_ITERATIONS
 
     def test_max_iterations_custom(self, mock_llm_client):
         """Test custom max iterations."""
