@@ -30,6 +30,9 @@ on:
     types: [checks_requested]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Refuse any implicit re-resolution. Every `uv sync` / `uv run` uses the
 # committed uv.lock as-is; fails loudly if the lockfile is genuinely stale.
 env:
@@ -39,7 +42,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python 3.11
       uses: actions/setup-python@v7
       with:
@@ -68,7 +71,7 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python 3.11
       uses: actions/setup-python@v7
       with:
@@ -90,7 +93,7 @@ jobs:
       matrix:
         python_ver: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.python_ver }}
       uses: actions/setup-python@v7
       with:
@@ -120,7 +123,7 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Set up Python 3.11

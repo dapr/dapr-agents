@@ -18,15 +18,19 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
-permissions:
-  actions: write
-  issues: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   prune_stale:
     name: Prune Stale
     runs-on: ubuntu-latest
+    # actions/stale@v11 docs: actions:write for Actions Cache state;
+    # issues/pull-requests:write for labels, comments, and closes.
+    # contents:write omitted (delete-branch is not enabled).
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: write
     steps:
     - name: Prune Stale
       uses: actions/stale@v11

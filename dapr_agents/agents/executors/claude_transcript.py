@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set
 
 _DEFERRED_ATTACHMENT = "hook_deferred_tool"
+# Text the CLI records as a user entry when a turn is interrupted.
+_INTERRUPT_MARKER = "[Request interrupted by user"
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,40 @@ def final_assistant_text(entries: Sequence[Mapping[str, Any]]) -> Optional[str]:
         )
     joined = "".join(reversed(texts)).strip()
     return joined or None
+
+
+def last_user_prompt(entries: Sequence[Mapping[str, Any]]) -> Optional[str]:
+    """
+    Return the text of the most recent user prompt.
+
+    Tool results, meta and sidechain entries, and the CLI's interrupt notice
+    are user entries too; they are skipped, so
+    a run that stopped mid tool loop still reports the prompt that started
+    its turn. Returns ``None`` when the transcript has no prompt.
+    """
+    for entry in reversed(entries):
+        if (
+            entry.get("type") != "user"
+            or entry.get("isMeta")
+            or entry.get("isSidechain")
+        ):
+            continue
+        message = entry.get("message")
+        content = message.get("content") if isinstance(message, Mapping) else None
+        if isinstance(content, str):
+            text = content
+        else:
+            blocks = _content_blocks(entry)
+            if any(block.get("type") == "tool_result" for block in blocks):
+                continue
+            texts = [str(b.get("text", "")) for b in blocks if b.get("type") == "text"]
+            if not texts:
+                continue
+            text = "".join(texts)
+        if text.startswith(_INTERRUPT_MARKER):
+            continue
+        return text
+    return None
 
 
 def last_total_cost(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
