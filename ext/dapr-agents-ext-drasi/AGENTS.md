@@ -83,6 +83,11 @@ Notes:
     public names, including `DrasiChangeEvent` and `DrasiOperation`.
 - Anything under `activations.py` or `utils/` should be treated as internal
     unless it is explicitly re-exported or documented here.
+- The subscription modules (`_models.py`, `_interfaces.py`, `intent_store.py`,
+    `router_client.py`, `subscription_manager.py`, and `subscription_tools.py`)
+    are private and do not extend these exports. See the README's
+    [private component notes](README.md#private-subscription-components) for
+    state transitions, ownership, and verification boundaries.
 
 ## Gotchas
 

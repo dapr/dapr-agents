@@ -459,6 +459,126 @@ class TestMCPToolExecutor:
         )
         assert call_kwargs["input"] == {"arguments": {"a": 1, "b": 2}}
 
+    def test_call_tool_omits_unset_optional_args(self):
+        """Optional args the LLM left out must not be sent as null, since MCP
+        servers reject null for a typed field."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {"arguments": {"topic": "orders"}}
+
+    def test_call_tool_drops_explicit_null_for_known_optional_arg(self):
+        """An explicit null for a schema field is dropped, not passed through
+        as an 'extra' kwarg."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders", contentType=None, unmodeled="x")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {
+            "arguments": {"topic": "orders", "unmodeled": "x"}
+        }
+
+    def test_call_tool_keeps_explicit_null_for_required_nullable_arg(self):
+        """A required nullable field keeps an explicit null; omitting it would
+        make the server reject the call as missing a required argument."""
+        tool_def = {
+            "name": "set_label",
+            "description": "Set or clear a label.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    "note": {"type": "string"},
+                },
+                "required": ["label"],
+            },
+        }
+        tool = _make_mcp_tools("dapr-server", [tool_def])[0]
+
+        ctx = MagicMock()
+        tool(ctx=ctx, label=None, note=None)
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {"arguments": {"label": None}}
+
+    def test_call_tool_sends_hyphenated_property_name(self):
+        """Property names that aren't Python identifiers reach the server
+        under their schema name."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "content-type": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, **{"topic": "orders", "content-type": "text/plain"})
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {
+            "arguments": {"topic": "orders", "content-type": "text/plain"}
+        }
+
+    def test_validated_args_use_field_alias(self):
+        """An aliased args_model field is passed on under its alias, the name
+        the tool schema advertises."""
+        from pydantic import BaseModel, Field
+
+        class AliasedArgs(BaseModel):
+            content_type: str = Field(alias="content-type")
+            charset: str | None = Field(default=None, alias="char-set")
+
+        received = {}
+
+        def _executor(ctx, **kwargs):
+            received.update(kwargs)
+
+        tool = WorkflowContextInjectedTool(
+            name="aliased",
+            description="Aliased args.",
+            func=_executor,
+            args_model=AliasedArgs,
+        )
+        tool(ctx=MagicMock(), **{"content-type": "text/plain"})
+
+        assert received == {"content-type": "text/plain"}
+
 
 class TestRunToolFailureScenarios:
     """run_tool activity error handling for non-MCP tools."""
