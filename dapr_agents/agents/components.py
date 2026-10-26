@@ -468,8 +468,15 @@ class DaprInfra:
                             exc_info=True,
                         )
                         current, current_etag = None, read_etag
+                    # Best-effort check that the failed attempt was actually
+                    # persisted. It assumes the store returns the JSON we sent
+                    # unchanged, and it misses if the store normalises JSON or
+                    # another writer saves right after us. A miss raises the
+                    # conflict below and the activity is retried on state that
+                    # already holds this write. That is safe for activities
+                    # that skip work already in the entry (call_llm by message
+                    # id, save_tool_results by tool_call_id).
                     if current == value:
-                        # The failed attempt was actually persisted.
                         return
                     if current_etag != read_etag:
                         # Another writer saved after our read. Retrying with a

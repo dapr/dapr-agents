@@ -2516,7 +2516,7 @@ class TestPublishStreamEventStateConflict:
 
     @pytest.fixture(autouse=True)
     def setup_env(self, monkeypatch):
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
+        monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
         mock_client = MockDaprClient()
         mock_client.get_state.return_value = Mock(data=None)
         monkeypatch.setattr("dapr.clients.DaprClient", lambda: mock_client)
@@ -2525,8 +2525,6 @@ class TestPublishStreamEventStateConflict:
             lambda: mock_client,
         )
         monkeypatch.setattr("dapr_agents.agents.components.time.sleep", lambda _: None)
-        yield
-        os.environ.pop("OPENAI_API_KEY", None)
 
     @pytest.fixture
     def store(self):
