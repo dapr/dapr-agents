@@ -16,7 +16,6 @@ import logging
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (
     RuntimeConfigKey,
-    RuntimeRuntimeConfigKey,
     RuntimeSubscriptionConfig,
     AgentStateConfig,
     AgentPubSubConfig,

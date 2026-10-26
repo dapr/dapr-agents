@@ -26,8 +26,9 @@ AutoGen, and the OpenAI Assistants API.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, ClassVar, Dict, Optional
 
+from dapr_agents.agents.executors.binding import ExecutorBinding
 from dapr_agents.agents.executors.event import AgentEvent
 
 
@@ -44,7 +45,37 @@ class AgentExecutorBase(ABC):
     The contract is intentionally narrow so that consumers such as
     ``DurableAgent`` can drive any compliant executor without
     provider-specific branching.
+
+    Executors that can pause a run on a tool call awaiting a decision set
+    ``supports_tool_approval = True``; see ``run`` and the module docs of
+    ``dapr_agents.agents.executors.event`` for the ``paused`` contract.
+
+    Executors that can use the hosting agent's profile, tools, hooks or
+    session store override ``bind``; the default ignores the binding.
     """
+
+    supports_tool_approval: ClassVar[bool] = False
+    """Whether ``run`` may end with a ``paused`` event and accepts
+    ``context[CONTEXT_TOOL_DECISIONS]`` to resume it."""
+
+    def bind(self, binding: ExecutorBinding) -> "AgentExecutorBase":
+        """
+        Return an executor configured with what the hosting agent offers.
+
+        ``DurableAgent`` calls this before every run with the agent's
+        current system prompt, tools, ``before_tool_call`` hooks and
+        durable session store, and drives the returned executor. The
+        default returns ``self`` unchanged. Overrides must not mutate
+        ``self`` (return a new instance instead) and should let settings
+        made explicitly on the executor win over the binding.
+
+        Args:
+            binding: The hosting agent's configuration for this run.
+
+        Returns:
+            The executor to drive for this run.
+        """
+        return self
 
     @abstractmethod
     async def run(
@@ -63,12 +94,16 @@ class AgentExecutorBase(ABC):
                 If ``None``, the executor should create a fresh session.
             context: Provider-specific extras (MCP server handles,
                 tool catalogs, scoped permissions, etc.). Implementations
-                may ignore unknown keys.
+                may ignore unknown keys. Executors that support tool
+                approval read ``context[CONTEXT_TOOL_DECISIONS]`` to resume
+                a paused run; the prompt is then ignored.
 
         Yields:
             ``AgentEvent`` values. The stream MUST end with either a
             ``complete`` event (success) or an ``error`` event (terminal
-            failure). Consumers may treat absence of a terminal event as
+            failure). Executors with ``supports_tool_approval`` may instead
+            end with a ``paused`` event (a deferred tool call awaits a
+            decision). Consumers may treat absence of a terminal event as
             an executor bug.
         """
         ...

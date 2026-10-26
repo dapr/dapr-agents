@@ -17,7 +17,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from dapr_agents.agents.base import AgentBase
-from dapr_agents.agents.configs import AgentMemoryConfig
+from dapr_agents.agents.configs import AgentExecutionConfig, AgentMemoryConfig
 from dapr_agents.memory import ConversationListMemory
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.prompt import ChatPromptTemplate
@@ -142,6 +142,35 @@ class TestAgentBaseClass:
         assert len(agent_with_tools.tools) == 1
         assert agent_with_tools.tools[0].name == "test_tool"
         assert agent_with_tools.tool_executor is not None
+
+    @pytest.mark.parametrize(
+        ("has_tools", "tool_choice", "expected"),
+        [
+            (False, "auto", None),
+            (False, None, None),
+            (False, "none", "none"),
+            (False, "required", "required"),
+            (False, "provider-specific", "provider-specific"),
+            (True, None, "auto"),
+        ],
+    )
+    def test_tool_choice_normalization(
+        self, mock_llm_client, has_tools, tool_choice, expected
+    ):
+        tools = None
+        if has_tools:
+            tool = Mock(spec=AgentTool)
+            tool.name = "test_tool"
+            tool.description = "A tool for testing."
+            tools = [tool]
+        agent = ConcreteAgentBase(
+            name="ToolChoiceAgent",
+            llm=mock_llm_client,
+            tools=tools,
+            execution=AgentExecutionConfig(tool_choice=tool_choice),
+        )
+
+        assert agent.execution.tool_choice == expected
 
     def test_prompt_template_construction(self, basic_agent):
         """Test that prompt template is properly constructed."""

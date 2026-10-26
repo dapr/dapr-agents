@@ -116,6 +116,22 @@ class TestToolsListPreprocessing:
         tool = frodo.tool_executor.get_tool("sam")
         assert tool is not None
         assert isinstance(tool, AgentWorkflowTool)
+        assert frodo.execution.tool_choice == "auto"
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [("none", "none"), ("required", "required"), (None, "auto")],
+    )
+    def test_agent_as_tool_preserves_tool_choice(self, mock_llm, tool_choice, expected):
+        sam = _make_agent("sam", mock_llm)
+        frodo = _make_agent(
+            "frodo",
+            mock_llm,
+            tools=[sam],
+            execution=AgentExecutionConfig(tool_choice=tool_choice),
+        )
+
+        assert frodo.execution.tool_choice == expected
 
     def test_agent_workflow_tool_name_matches_agent_name(self, mock_llm):
         sam = _make_agent("sam", mock_llm)
@@ -305,6 +321,31 @@ class TestLoadTools:
             frodo.load_tools(ctx)
 
         assert frodo.tool_executor.get_tool("sam") is not None
+        assert frodo.execution.tool_choice == "auto"
+
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [("none", "none"), ("required", "required"), (None, "auto")],
+    )
+    def test_registry_discovery_preserves_tool_choice(
+        self, mock_llm, tool_choice, expected
+    ):
+        frodo = _make_agent(
+            "frodo",
+            mock_llm,
+            execution=AgentExecutionConfig(tool_choice=tool_choice),
+        )
+        self._with_registry(frodo)
+        metadata = self._make_registry_metadata(
+            {
+                "sam": {"role": "helper", "goal": "assist"},
+            }
+        )
+
+        with patch.object(frodo._infra, "get_agents_metadata", return_value=metadata):
+            frodo.load_tools(MagicMock())
+
+        assert frodo.execution.tool_choice == expected
 
     def test_skips_already_registered_tool(self, mock_llm):
         sam_tool = agent_to_tool("sam", "already registered")

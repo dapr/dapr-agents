@@ -17,6 +17,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-publish:
     name: Publish to PyPI
@@ -24,11 +27,11 @@ jobs:
     env:
       TWINE_USERNAME: "__token__"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: 3.11
       - name: Install dependencies

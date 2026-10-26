@@ -11,6 +11,7 @@
 # limitations under the License.
 #
 
+from .executor import ExecutorObserverWrapper
 from .llm import LLMWrapper
 from .tool import RunToolWrapper
 from .workflow import (
@@ -20,6 +21,7 @@ from .workflow import (
 from .workflow_task import WorkflowActivityRegistrationWrapper
 
 __all__ = [
+    "ExecutorObserverWrapper",
     "LLMWrapper",
     "RunToolWrapper",
     "WorkflowMonitorWrapper",

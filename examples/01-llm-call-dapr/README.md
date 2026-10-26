@@ -93,7 +93,10 @@ if response.get_message() is not None:
 llm = DaprChatClient()
 response: LLMChatResponse = llm.generate(messages=[UserMessage("hello")])
 
-if response.get_message() is not None and "hello" in response.get_message().content.lower():
+if (
+    response.get_message() is not None
+    and "hello" in response.get_message().content.lower()
+):
     print("Response with user input: ", response.get_message().content)
 ```
 
@@ -182,7 +185,7 @@ To demonstrate `DaprChatClient`'s resiliency features, let's create an example t
 
 First, set the environment variable to use the AWS Bedrock component:
 
-```python
+```env
 DAPR_LLM_COMPONENT_DEFAULT=awsbedrock
 ```
 

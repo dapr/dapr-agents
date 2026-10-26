@@ -58,6 +58,7 @@ from .constants import (
     wrap_function_wrapper,
 )
 from .wrappers import (
+    ExecutorObserverWrapper,
     LLMWrapper,
     RunToolWrapper,
     WorkflowMonitorWrapper,
@@ -189,6 +190,9 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         # LLM provider integrations
         self._apply_llm_wrappers()
 
+        # Agent executor runs (DurableAgent executor branch)
+        self._apply_executor_wrappers()
+
         # Instrument HTTPX client for context propagation through MCPClient connection
         self._httpx_instrumentor = HTTPXClientInstrumentor()
         self._httpx_instrumentor.instrument()
@@ -240,7 +244,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
                 WorkflowActivityRegistrationWrapper(self._tracer)
             )
             wrap_function_wrapper(
-                module="dapr.ext.workflow.workflow_runtime",
+                "dapr.ext.workflow.workflow_runtime",
                 name="WorkflowRuntime.register_activity",
                 wrapper=wrapper,
             )
@@ -267,7 +271,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         try:
             wrap_function_wrapper(
-                module="dapr_agents.tool.executor",
+                "dapr_agents.tool.executor",
                 name="AgentToolExecutor.run_tool",
                 wrapper=self._track_wrapper(RunToolWrapper(self._tracer)),
             )
@@ -281,18 +285,35 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
         """
         try:
             wrap_function_wrapper(
-                module="dapr_agents.workflow.runners.base",
+                "dapr_agents.workflow.runners.base",
                 name="WorkflowRunner.run_workflow_async",
                 wrapper=self._track_wrapper(WorkflowMonitorWrapper(self._tracer)),
             )
 
             wrap_function_wrapper(
-                module="dapr_agents.workflow.runners.base",
+                "dapr_agents.workflow.runners.base",
                 name="WorkflowRunner.run_workflow",
                 wrapper=self._track_wrapper(WorkflowRunWrapper(self._tracer)),
             )
         except Exception as e:  # noqa: BLE001
             logger.error("Error applying workflow wrappers: %s", e, exc_info=True)
+
+    def _apply_executor_wrappers(self) -> None:
+        """
+        Apply observability wrappers for ``AgentExecutorBase`` runs.
+
+        Wraps ``DurableExecutorMixin._executor_observer`` so each
+        ``run_executor`` activity emits an ``invoke_agent`` span with a
+        child ``execute_tool`` span per tool call the executor reports.
+        """
+        try:
+            wrap_function_wrapper(
+                "dapr_agents.agents.durable_executor",
+                name="DurableExecutorMixin._executor_observer",
+                wrapper=self._track_wrapper(ExecutorObserverWrapper(self._tracer)),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("Error applying executor wrappers: %s", e, exc_info=True)
 
     def _apply_llm_wrappers(self) -> None:
         """
@@ -312,7 +333,7 @@ class DaprAgentsInstrumentor(BaseInstrumentor):
             # Instrument each concrete chat client implementation
             for chat_client_class, module_name in chat_client_classes:
                 wrap_function_wrapper(
-                    module=module_name,
+                    module_name,
                     name=f"{chat_client_class.__name__}.generate",
                     wrapper=self._track_wrapper(LLMWrapper(self._tracer)),
                 )

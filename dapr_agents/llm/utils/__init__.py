@@ -14,7 +14,7 @@
 from .http import HTTPHelper
 from .request import RequestHandler
 from .response import ResponseHandler
-from .stream import StreamHandler
+from .stream import StreamHandler, process_choice_delta_stream
 from .structure import StructureHandler
 
 __all__ = [
@@ -23,4 +23,5 @@ __all__ = [
     "RequestHandler",
     "ResponseHandler",
     "HTTPHelper",
+    "process_choice_delta_stream",
 ]

@@ -88,6 +88,7 @@ First, create MCP tools in `tools.py`:
 ```python
 mcp = FastMCP("TestServer")
 
+
 @mcp.tool()
 async def get_weather(location: str) -> str:
     """Get weather information for a specific location."""

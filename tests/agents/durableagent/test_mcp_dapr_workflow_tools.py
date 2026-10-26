@@ -24,13 +24,15 @@ owned by the python-sdk ``DaprMCPClient`` and tested there.
 """
 
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import List
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import ValidationError
 
+from dapr_agents.agents.configs import AgentExecutionConfig
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.schemas import AgentWorkflowEntry
 from dapr_agents.tool.base import AgentTool
@@ -123,7 +125,11 @@ def _make_regular_tool() -> AgentTool:
     )
 
 
-def _make_agent(tools: list, name: str = "TestAgent") -> DurableAgent:
+def _make_agent(
+    tools: list,
+    name: str = "TestAgent",
+    execution: AgentExecutionConfig | None = None,
+) -> DurableAgent:
     from dapr_agents.agents.configs import AgentPubSubConfig, AgentStateConfig
     from dapr_agents.storage.daprstores.stateservice import StateStoreService
 
@@ -133,6 +139,7 @@ def _make_agent(tools: list, name: str = "TestAgent") -> DurableAgent:
         goal="Run tests",
         instructions=["Follow test instructions"],
         tools=tools,
+        execution=execution,
         pubsub=AgentPubSubConfig(pubsub_name="testpubsub"),
         state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
     )
@@ -304,6 +311,45 @@ class TestMCPToolConversion:
         assert names == {"add", "multiply", "get_weather"}
 
 
+class TestMCPAutoDiscoveryToolChoice:
+    class FakeDaprMCPClient:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        async def connect(self, name: str) -> None:
+            pass
+
+        def get_all_tools(self) -> list[MCPToolDef]:
+            return [_tool_def("math-server", _MCP_TOOLS[0])]
+
+        def get_connected_servers(self) -> list[str]:
+            return ["math-server"]
+
+    def _patch_mcp_client(self, monkeypatch) -> None:
+        aio_module = ModuleType("dapr.ext.workflow.aio")
+        setattr(aio_module, "DaprMCPClient", self.FakeDaprMCPClient)
+        monkeypatch.setitem(sys.modules, "dapr.ext.workflow.aio", aio_module)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("tool_choice", "expected"),
+        [("none", "none"), ("required", "required"), (None, "auto")],
+    )
+    async def test_preserves_tool_choice(
+        self, monkeypatch, tool_choice, expected
+    ) -> None:
+        agent = _make_agent(
+            [],
+            execution=AgentExecutionConfig(tool_choice=tool_choice),
+        )
+        agent._discovered_mcpserver_names = ["math-server"]
+        self._patch_mcp_client(monkeypatch)
+
+        await agent.connect_mcpservers()
+
+        assert agent.execution.tool_choice == expected
+
+
 class TestMixedToolSet:
     """Agents must work correctly when tool list contains both tool types."""
 
@@ -412,6 +458,126 @@ class TestMCPToolExecutor:
             call_kwargs["workflow"] == f"{_MCP_WORKFLOW_PREFIX}math-server.CallTool.add"
         )
         assert call_kwargs["input"] == {"arguments": {"a": 1, "b": 2}}
+
+    def test_call_tool_omits_unset_optional_args(self):
+        """Optional args the LLM left out must not be sent as null, since MCP
+        servers reject null for a typed field."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {"arguments": {"topic": "orders"}}
+
+    def test_call_tool_drops_explicit_null_for_known_optional_arg(self):
+        """An explicit null for a schema field is dropped, not passed through
+        as an 'extra' kwarg."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "contentType": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, topic="orders", contentType=None, unmodeled="x")
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {
+            "arguments": {"topic": "orders", "unmodeled": "x"}
+        }
+
+    def test_call_tool_keeps_explicit_null_for_required_nullable_arg(self):
+        """A required nullable field keeps an explicit null; omitting it would
+        make the server reject the call as missing a required argument."""
+        tool_def = {
+            "name": "set_label",
+            "description": "Set or clear a label.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "label": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    "note": {"type": "string"},
+                },
+                "required": ["label"],
+            },
+        }
+        tool = _make_mcp_tools("dapr-server", [tool_def])[0]
+
+        ctx = MagicMock()
+        tool(ctx=ctx, label=None, note=None)
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {"arguments": {"label": None}}
+
+    def test_call_tool_sends_hyphenated_property_name(self):
+        """Property names that aren't Python identifiers reach the server
+        under their schema name."""
+        publish_def = {
+            "name": "publish_event",
+            "description": "Publish an event.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "content-type": {"type": "string"},
+                },
+                "required": ["topic"],
+            },
+        }
+        publish = _make_mcp_tools("dapr-server", [publish_def])[0]
+
+        ctx = MagicMock()
+        publish(ctx=ctx, **{"topic": "orders", "content-type": "text/plain"})
+
+        call_kwargs = ctx.call_child_workflow.call_args.kwargs
+        assert call_kwargs["input"] == {
+            "arguments": {"topic": "orders", "content-type": "text/plain"}
+        }
+
+    def test_validated_args_use_field_alias(self):
+        """An aliased args_model field is passed on under its alias, the name
+        the tool schema advertises."""
+        from pydantic import BaseModel, Field
+
+        class AliasedArgs(BaseModel):
+            content_type: str = Field(alias="content-type")
+            charset: str | None = Field(default=None, alias="char-set")
+
+        received = {}
+
+        def _executor(ctx, **kwargs):
+            received.update(kwargs)
+
+        tool = WorkflowContextInjectedTool(
+            name="aliased",
+            description="Aliased args.",
+            func=_executor,
+            args_model=AliasedArgs,
+        )
+        tool(ctx=MagicMock(), **{"content-type": "text/plain"})
+
+        assert received == {"content-type": "text/plain"}
 
 
 class TestRunToolFailureScenarios:

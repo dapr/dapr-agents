@@ -231,6 +231,43 @@ class TestConsumeExecutor:
         assert "user" in roles
         assert "assistant" in roles
 
+    def test_repeated_answer_from_an_earlier_turn_is_still_saved(self):
+        executor = _ScriptedExecutor(
+            [
+                AgentEvent(
+                    type="complete",
+                    content={"role": "assistant", "content": "Done."},
+                    session_id="s",
+                ),
+            ]
+        )
+        agent = _make_agent(executor)
+        entry = self._prime_entry(agent)
+        agent._save_assistant_message(
+            "inst-1",
+            {"role": "assistant", "content": "Done."},
+            entry=entry,
+            skip_save=True,
+        )
+
+        with (
+            patch.object(agent, "save_state"),
+            patch.object(agent._infra, "get_state", side_effect=lambda wid: entry),
+        ):
+            asyncio.run(
+                agent._consume_executor(
+                    {"task": "again", "instance_id": "inst-1", "source": "test"}
+                )
+            )
+
+        answers = [
+            m
+            for m in entry.messages
+            if getattr(m, "role", None) == "assistant"
+            and getattr(m, "content", None) == "Done."
+        ]
+        assert len(answers) == 2
+
     def test_session_event_triggers_save(self):
         executor = _ScriptedExecutor(
             [
@@ -776,6 +813,7 @@ class TestAgentWorkflowExecutorBranch:
             captured.append(
                 {
                     "name": _activity_method_name(activity),
+                    "raw_name": activity,
                     "input": kwargs.get("input"),
                     "retry_policy": kwargs.get("retry_policy"),
                 }
@@ -823,6 +861,19 @@ class TestAgentWorkflowExecutorBranch:
         assert payload["task"] == "hi"
         assert payload["instance_id"] == "wf-inst-42"
         assert run_calls[0]["retry_policy"] is agent._retry_policy
+
+    def test_calls_executor_activity_by_registered_name(self):
+        """The call site must use the agent-scoped name ``register_activities`` uses.
+
+        Dapr resolves activities by registered name; a bare ``run_executor``
+        reference does not match ``dapr.agents.<agent>.run_executor``.
+        """
+        agent = _make_agent(_ScriptedExecutor([]))
+
+        captured, _ = self._drive_workflow(agent, {"task": "hi"})
+
+        run_call = next(c for c in captured if c["name"] == "run_executor")
+        assert run_call["raw_name"] == agent._activity_name(agent.run_executor)
 
     def test_payload_passes_caller_session_id_and_context(self):
         """Message with session_id/context ⇒ they flow into run_executor input."""
