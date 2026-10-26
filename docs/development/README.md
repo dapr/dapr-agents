@@ -129,6 +129,18 @@ uv run pytest tests/test_random_orchestrator.py
 uv run pytest --cov=dapr_agents
 ```
 
+### Built Wheel Verification
+
+The `package` job in [the build workflow](../../.github/workflows/build.yaml) checks that built distributions install and import without relying on the development environment.
+
+It first installs the local core wheel without optional extras and verifies its public imports. It then installs both explicit local wheel paths to check core together with the repository's separately packaged extension, currently `dapr-agents-ext-drasi`.
+
+Both stages resolve dependencies from wheel metadata, run `uv pip check`, compare installed versions with the built wheels, and verify import locations. The checks use the job's Python 3.11 interpreter in a fresh environment outside the checkout, with Python isolated mode preventing `PYTHONPATH` and current-directory fallback.
+
+The environment is reused between stages and removed on success or failure. The workflow records total verification time, including dependency installation.
+
+Builds use the actual `setuptools_scm` version. Fork runs fetch upstream release tags into the job's checkout so version discovery has the necessary history; no tags are pushed to the fork and no package version is overridden.
+
 ### Integration Tests
 
 > Note: we do not use `pytest-docker-compose` intentionally here because it is not compatible with Python2,
@@ -249,7 +261,7 @@ The project uses several tools to maintain code quality:
 
 ```bash
 # Run linting
-uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 
 # Run code formatting
 uv run ruff format
@@ -258,7 +270,7 @@ uv run ruff format
 uv run mypy --config-file mypy.ini
 
 ## Run all combined
-uv run ruff format && uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration"
+uv run ruff format && uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704 && uv run mypy --config-file mypy.ini && uv run pytest tests -m "not integration" && DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
 ```
 
 ## Pre-Push Hooks
@@ -309,10 +321,11 @@ make hooks-run
 make hooks-run-all
 
 # Run individual checks (same commands as before)
-uv run ruff format dapr_agents tests
-uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+uv run ruff format
+uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
 uv run mypy --config-file mypy.ini
 uv run pytest tests -m "not integration"
+DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
 ```
 
 ### Skipping Hooks (Emergency Only)
@@ -349,7 +362,7 @@ git push --no-verify
 ### Option 1 - Using pip:
 1. Install development dependencies:
    ```bash
-   uv sync --group test
+   uv sync --group test --extra drasi
    ```
 
 2. Run tests before making changes:
@@ -361,7 +374,7 @@ git push --no-verify
 
 4. Run code quality checks:
    ```bash
-   uv run flake8 dapr_agents tests --ignore=E501,F401,W503,E203,E704
+   uv run flake8 dapr_agents tests ext --ignore=E501,F401,W503,E203,E704
    uv run ruff format
    uv run mypy --config-file mypy.ini
    ```
@@ -369,6 +382,7 @@ git push --no-verify
 5. Run tests again:
    ```bash
    uv run pytest tests -m "not integration"
+   DAPR_AGENTS_REQUIRE_DRASI=1 uv run pytest ext -m "not integration"
    ```
 
 6. Submit your changes
