@@ -24,7 +24,7 @@ from typing import (
     Any,
     Callable,
     Dict,
-    overload,
+    Final,
     List,
     MutableMapping,
     Optional,
@@ -112,8 +112,23 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+
+class _Unset:
+    """Sentinel type for constructor arguments omitted by the caller."""
+
+    __slots__ = ()
+
+
 # Temporary sentinel used during instantiated config construction to track caller-omitted fields.
-_UNSET = object()
+_UNSET: Final[_Unset] = _Unset()
+
+
+def _resolve_unset(value: T | _Unset, default: T) -> T:
+    if isinstance(value, _Unset):
+        return default
+    return value
+
+
 _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS = (
     "max_iterations",
     "tool_choice",
@@ -645,7 +660,7 @@ class AgentExecutionConfig:
     # ALPHA: streaming emits AgentStreamChunk (schema "1-alpha") and may change
     # in shape/semantics in future 1.x releases. Enabling it logs a one-time
     # alpha warning; consumers should branch on AgentStreamChunk.schema_version.
-    streaming: bool = False
+    streaming: Optional[bool] = False
     stream_listener: Optional[Dict[str, Any]] = field(default=None, repr=False)
 
     # Built-in tools are opt-in. Default is an empty list to preserve strict
@@ -655,39 +670,20 @@ class AgentExecutionConfig:
     # for YAML/JSON config) *and* ``streaming=True``; the tool is registered
     # only when both are true and the agent is not an orchestrator. Names are
     # validated against ``BuiltinTool`` in ``__post_init__``.
-    builtin_tools: List[str] = field(default_factory=list)
-
-    # Keep the public constructor signature typed with real defaults
-    # while the runtime implementation uses the``_UNSET`` sentinel to distinguish omitted arguments.
-    @overload
-    def __init__(
-        self,
-        max_iterations: Optional[int] = AGENT_DEFAULT_MAX_ITERATIONS,
-        tool_choice: Optional[str] = AGENT_DEFAULT_TOOL_CHOICE,
-        tool_execution_mode: Optional[
-            ToolExecutionMode
-        ] = AGENT_DEFAULT_TOOL_EXECUTION_MODE,
-        orchestration_mode: Optional[OrchestrationMode] = None,
-        approval: Optional[AgentApprovalConfig] = ...,
-        max_approval_rounds: Optional[int] = None,
-        max_grpc_inbound_message_size_bytes: Optional[int] = None,
-        streaming: bool = False,
-        stream_listener: Optional[Dict[str, Any]] = None,
-        builtin_tools: List[str] = ...,
-    ) -> None: ...
+    builtin_tools: Optional[List[str]] = field(default_factory=list)
 
     def __init__(
         self,
-        max_iterations: Any = _UNSET,
-        tool_choice: Any = _UNSET,
-        tool_execution_mode: Any = _UNSET,
-        orchestration_mode: Any = _UNSET,
-        approval: Any = _UNSET,
-        max_approval_rounds: Any = _UNSET,
-        max_grpc_inbound_message_size_bytes: Any = _UNSET,
-        streaming: Any = _UNSET,
-        stream_listener: Any = _UNSET,
-        builtin_tools: Any = _UNSET,
+        max_iterations: Optional[int] | _Unset = _UNSET,
+        tool_choice: Optional[str] | _Unset = _UNSET,
+        tool_execution_mode: Optional[ToolExecutionMode] | _Unset = _UNSET,
+        orchestration_mode: Optional[OrchestrationMode] | _Unset = _UNSET,
+        approval: Optional[AgentApprovalConfig] | _Unset = _UNSET,
+        max_approval_rounds: Optional[int] | _Unset = _UNSET,
+        max_grpc_inbound_message_size_bytes: Optional[int] | _Unset = _UNSET,
+        streaming: Optional[bool] | _Unset = _UNSET,
+        stream_listener: Optional[Dict[str, Any]] | _Unset = _UNSET,
+        builtin_tools: Optional[List[str]] | _Unset = _UNSET,
     ) -> None:
         """Initialize execution fields with public defaults.
 
@@ -695,38 +691,30 @@ class AgentExecutionConfig:
         values from explicit overrides. This preserves real defaults in the
         dataclass fields for callers and introspection.
         """
-        self.max_iterations = (
-            AGENT_DEFAULT_MAX_ITERATIONS if max_iterations is _UNSET else max_iterations
+        self.max_iterations = _resolve_unset(
+            max_iterations, AGENT_DEFAULT_MAX_ITERATIONS
         )
-        self.tool_choice = (
-            AGENT_DEFAULT_TOOL_CHOICE if tool_choice is _UNSET else tool_choice
+        self.tool_choice = _resolve_unset(tool_choice, AGENT_DEFAULT_TOOL_CHOICE)
+        self.tool_execution_mode = _resolve_unset(
+            tool_execution_mode, AGENT_DEFAULT_TOOL_EXECUTION_MODE
         )
-        self.tool_execution_mode = (
-            AGENT_DEFAULT_TOOL_EXECUTION_MODE
-            if tool_execution_mode is _UNSET
-            else tool_execution_mode
+        self.orchestration_mode = _resolve_unset(orchestration_mode, None)
+        self.approval = _resolve_unset(approval, AgentApprovalConfig())
+        self.max_approval_rounds = _resolve_unset(max_approval_rounds, None)
+        self.max_grpc_inbound_message_size_bytes = _resolve_unset(
+            max_grpc_inbound_message_size_bytes, None
         )
-        self.orchestration_mode = (
-            None if orchestration_mode is _UNSET else orchestration_mode
-        )
-        self.approval = AgentApprovalConfig() if approval is _UNSET else approval
-        self.max_approval_rounds = (
-            None if max_approval_rounds is _UNSET else max_approval_rounds
-        )
-        self.max_grpc_inbound_message_size_bytes = (
-            None
-            if max_grpc_inbound_message_size_bytes is _UNSET
-            else max_grpc_inbound_message_size_bytes
-        )
-        self.streaming = False if streaming is _UNSET else streaming
-        self.stream_listener = None if stream_listener is _UNSET else stream_listener
-        self.builtin_tools = [] if builtin_tools is _UNSET else builtin_tools
+        self.streaming = _resolve_unset(streaming, False)
+        self.stream_listener = _resolve_unset(stream_listener, None)
+        self.builtin_tools = _resolve_unset(builtin_tools, [])
+
         provided_values = locals()
-        self._provided_fields = frozenset(
+        self._explicitly_set_fields = frozenset(
             field_name
             for field_name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS
             if provided_values[field_name] is not _UNSET
         )
+
         self.__post_init__()
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -734,16 +722,18 @@ class AgentExecutionConfig:
         object.__setattr__(self, name, value)
 
         # During the custom ``__init__``, tracked fields are assigned before
-        # ``_provided_fields`` exists, so those assignments don't need to update it.
-        # After construction, assignments must update ``_provided_fields`` so that they can be read
+        # ``_explicitly_set_fields`` exists, so those assignments don't need to update it.
+        # After construction, assignments must update ``_explicitly_set_fields`` so that they can be read
         # during config resolution via ``_from_instantiation()``.
         if (
             name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS
-            and "_provided_fields" in self.__dict__
+            and "_explicitly_set_fields" in self.__dict__
         ):
-            provided_fields = set(self._provided_fields)
-            provided_fields.add(name)
-            object.__setattr__(self, "_provided_fields", frozenset(provided_fields))
+            explicitly_set_fields = set(self._explicitly_set_fields)
+            explicitly_set_fields.add(name)
+            object.__setattr__(
+                self, "_explicitly_set_fields", frozenset(explicitly_set_fields)
+            )
 
     def __post_init__(self) -> None:
         # Accept explicit ``builtin_tools=None`` for template configs, skipping validation.
@@ -911,7 +901,7 @@ class AgentExecutionConfig:
         # environment configuration. Remove both the copied default and its getter
         # so the original default is not re-applied during validation.
         for field_name in _AGENT_EXECUTION_CONFIG_INSTANTIATION_TRACKED_FIELDS:
-            if field_name not in instantiated_config._provided_fields:
+            if field_name not in instantiated_config._explicitly_set_fields:
                 setattr(resolved_config, field_name, None)
                 config_field_map.pop(field_name)
 

@@ -580,6 +580,8 @@ class AgentBase:
         # -----------------------------
         self.instrumentor: Optional[DaprAgentsInstrumentor] = None
         self._otel_logging_handler = None
+        # Configuration subscriptions are established in ``start()`` after initialization,
+        # so config updates cannot arrive before observability is resolved.
         self._agent_observability = AgentObservabilityConfig._resolve_config(
             config=agent_observability,
             # OTEL_EXPORTER_OTLP_HEADERS may come from runtime config or secrets (as an access token).
