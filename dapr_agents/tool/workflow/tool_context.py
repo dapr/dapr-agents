@@ -92,15 +92,27 @@ class WorkflowContextInjectedTool(AgentTool):
                 from pydantic import ValidationError
 
                 try:
-                    coerced = self.args_model(**kwargs).model_dump()
+                    coerced = self.args_model(**kwargs).model_dump(by_alias=True)
                 except ValidationError as ve:
                     raise ToolError(
                         f"Validation error in tool '{self.name}': {ve}"
                     ) from ve
+                # Drop nulls for optional fields (unset or explicit) so MCP
+                # servers don't reject them, but keep an explicit null on a
+                # required nullable field: omitting it would be a missing
+                # required argument.
+                for name, field in self.args_model.model_fields.items():
+                    key = field.alias or name
+                    if coerced.get(key, ...) is None and not field.is_required():
+                        coerced.pop(key)
                 # Use Pydantic-coerced values for known schema fields; pass
                 # through any extra kwargs unchanged (MCP tools may accept
                 # fields the local schema doesn't model).
-                extras = {k: v for k, v in kwargs.items() if k not in coerced}
+                known = set(self.args_model.model_fields)
+                known.update(
+                    f.alias for f in self.args_model.model_fields.values() if f.alias
+                )
+                extras = {k: v for k, v in kwargs.items() if k not in known}
                 validated = {**coerced, **extras}
 
         validated[self.context_kwarg] = ctx
