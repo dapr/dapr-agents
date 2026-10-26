@@ -92,6 +92,21 @@ jobs:
       with:
         python-version: ${{ matrix.python_ver }}
 
+    # Kept inline rather than using ./.github/actions/dapr-reserve-ports:
+    # this workflow runs on issue_comment, so its file comes from main but the
+    # workspace is the PR head. A local action would be loaded from the PR
+    # checkout, and would be missing on branches older than the action.
+    # Keep in sync with .github/actions/dapr-reserve-ports/action.yml.
+    - name: Reserve Dapr host ports
+      # Host ports published by `dapr init` on Linux, from the dapr CLI's
+      # pkg/standalone/standalone.go: placement 50005 (health 58080, metrics
+      # 59090) and scheduler 50006 (health 58081, metrics 59091). Redis 6379,
+      # Zipkin 9411 and scheduler etcd 2379 are below the ephemeral range.
+      run: |
+        ports="50005,50006,58080,58081,59090,59091"
+        current="$(sysctl -n net.ipv4.ip_local_reserved_ports)"
+        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${current:+$current,}$ports"
+
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
 
@@ -99,9 +114,29 @@ jobs:
       run: |
         wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
 
+    # Inline for the same reason as "Reserve Dapr host ports" above.
+    # Keep in sync with .github/actions/dapr-init/action.yml.
     - name: Initialize Dapr
+      shell: bash
       run: |
-        dapr init
+        log="$(mktemp)"
+        trap 'rm -f "$log"' EXIT
+        for attempt in 1 2 3; do
+          if dapr init 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if ! grep -qiE 'address already in use|port is already allocated' "$log"; then
+            echo "::error::dapr init failed"
+            exit 1
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::dapr init failed after 3 attempts: a host port stayed in use"
+            exit 1
+          fi
+          echo "dapr init hit a port conflict (attempt $attempt/3); retrying"
+          dapr uninstall --all || true
+          sleep 5
+        done
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
