@@ -14,7 +14,7 @@
 [project]
 name = "ext-drasi-change-driven-agents-k8s"
 version = "0.1.0"
-requires-python = ">=3.11, <3.14"
+requires-python = ">=3.11, <3.15"
 dependencies = [
     "dapr-agents[drasi]",
 ]
