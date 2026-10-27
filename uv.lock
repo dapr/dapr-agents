@@ -19,11 +19,8 @@ exclude-newer-span = "P7D"
 [options.exclude-newer-package]
 anthropic = "2026-08-23T00:00:00Z"
 claude-agent-sdk = "2026-09-24T00:00:00Z"
-dapr = "2026-05-21T00:00:00Z"
-dapr-ext-fastapi = "2026-05-21T00:00:00Z"
-dapr-ext-workflow = "2026-05-21T00:00:00Z"
+dapr = "2026-10-22T00:00:00Z"
 drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
-durabletask-dapr = "2026-05-21T00:00:00Z"
 
 [manifest]
 members = [
@@ -2020,7 +2017,7 @@ wheels = [
 
 [[package]]
 name = "dapr"
-version = "1.18.0rc0"
+version = "1.19.0rc4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -2031,7 +2028,13 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/7e/ec0fb2b09a7be4b662cac3326cdb74bc4fdafd7bd875cc9f340cdbc5d9db/dapr-1.18.0rc0-py3-none-any.whl", hash = "sha256:1f6264aec870c352eb7486b524ce3143ea820a9cdce7afa104719f3d56763d9f", size = 246209, upload-time = "2026-05-19T20:03:02.775Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/ba/2317ae6f34c10a17bb057a3e24e76afe7889efd143b7de1cc773f12c82b3/dapr-1.19.0rc4-py3-none-any.whl", hash = "sha256:5636c29bab3c03e0274d58e6cfba06d62edec0d37f307bae0efa84f4e1b1873b", size = 624615, upload-time = "2026-10-21T15:06:37.102Z" },
+]
+
+[package.optional-dependencies]
+fastapi = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
 ]
 
 [[package]]
@@ -2044,9 +2047,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "cloudevents" },
     { name = "colorama" },
-    { name = "dapr" },
-    { name = "dapr-ext-fastapi" },
-    { name = "dapr-ext-workflow" },
+    { name = "dapr", extra = ["fastapi"] },
     { name = "docker" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -2136,10 +2137,8 @@ requires-dist = [
     { name = "claude-agent-sdk", marker = "extra == 'claude'", specifier = ">=0.2.159,<0.3.0" },
     { name = "cloudevents", specifier = ">=1.11.0,<3.0.0" },
     { name = "colorama", specifier = ">=0.4.6,<1.0.0" },
-    { name = "dapr", specifier = ">=1.18.0rc0,<1.19.0" },
+    { name = "dapr", extras = ["fastapi", "workflow"], specifier = ">=1.19.0rc4,<1.20.0" },
     { name = "dapr-agents-ext-drasi", marker = "extra == 'drasi'", editable = "ext/dapr-agents-ext-drasi" },
-    { name = "dapr-ext-fastapi", specifier = ">=1.18.0rc0,<1.19.0" },
-    { name = "dapr-ext-workflow", specifier = ">=1.18.0rc0,<1.19.0" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
@@ -2247,30 +2246,6 @@ test = [
     { name = "pytest-asyncio", specifier = ">=0.23.0,<2.0.0" },
     { name = "pytest-cov", specifier = ">=4.1.0,<8.0.0" },
     { name = "pytest-mock", specifier = ">=3.12.0,<4.0.0" },
-]
-
-[[package]]
-name = "dapr-ext-fastapi"
-version = "1.18.0rc0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "dapr" },
-    { name = "fastapi" },
-    { name = "uvicorn" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/45/db96288a2b3465a41b778b7bb6d23eb3467d6098f1d688caea6b399114af/dapr_ext_fastapi-1.18.0rc0-py3-none-any.whl", hash = "sha256:c85cc15b5a6af082d1a88142a06a223e80ef3f713ee285a3c2b11965601f8d48", size = 9757, upload-time = "2026-05-19T20:03:14.615Z" },
-]
-
-[[package]]
-name = "dapr-ext-workflow"
-version = "1.18.0rc0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "dapr" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/db/5d/8dc37774fc74de9d67fab7e820d40c2e65eb1b76761cac9b99d56bc8e3dd/dapr_ext_workflow-1.18.0rc0-py3-none-any.whl", hash = "sha256:dba0f5192838ccd2cb4b89831987bcb8682ba4ba7aefe075bf20a14f11376de8", size = 148769, upload-time = "2026-05-19T20:03:05.744Z" },
 ]
 
 [[package]]

@@ -27,9 +27,7 @@ authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.18.0rc0,<1.19.0",
-    "dapr-ext-fastapi>=1.18.0rc0,<1.19.0",
-    "dapr-ext-workflow>=1.18.0rc0,<1.19.0",
+    "dapr[fastapi,workflow]>=1.19.0rc4,<1.20.0",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -136,10 +134,7 @@ exclude-newer = "7 days"
 [tool.uv.exclude-newer-package]
 # Explicit UTC timestamps — bare dates would otherwise be evaluated in the
 # local timezone, producing different timestamps on developer machines vs. CI.
-dapr = "2026-05-21T00:00:00Z"
-dapr-ext-fastapi = "2026-05-21T00:00:00Z"
-dapr-ext-workflow = "2026-05-21T00:00:00Z"
-durabletask-dapr = "2026-05-21T00:00:00Z"
+dapr = "2026-10-22T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
 # claude-agent-sdk 0.2.159 (the minimum the claude extra needs) is newer than
 # the 7-day cooldown. This fixed date admits nothing released after it; drop

@@ -2561,7 +2561,8 @@ class TestCallLlmRedelivery:
         Without this, a rename in the SDK would quietly drop call_llm back to
         the task_id key, which does not survive retries.
         """
-        dist = importlib.metadata.distribution("dapr-ext-workflow")
+        # Since 1.19 the workflow extension ships inside the core dapr package.
+        dist = importlib.metadata.distribution("dapr")
 
         def class_members(rel_path, class_name):
             source = dist.locate_file(rel_path).read_text()
