@@ -11,25 +11,15 @@
 # limitations under the License.
 #
 
-from dapr_agents.prompt.utils.jinja import (
-    render_jinja_template,
-    extract_jinja_variables,
-)
-from dapr_agents.prompt.utils.fstring import (
-    render_fstring_template,
-    extract_fstring_variables,
-)
+"""Compatibility shim for string prompt utilities. Use dapr_agents.prompt.engine instead."""
+
 from typing import Any, List
 
-DEFAULT_FORMATTER_MAPPING = {
-    "f-string": render_fstring_template,
-    "jinja2": render_jinja_template,
-}
-
-DEFAULT_VARIABLE_EXTRACTOR_MAPPING = {
-    "f-string": extract_fstring_variables,
-    "jinja2": extract_jinja_variables,
-}
+from dapr_agents.prompt.engine import (
+    DEFAULT_FORMATTER_MAPPING,
+    DEFAULT_VARIABLE_EXTRACTOR_MAPPING,
+    TemplateEngine,
+)
 
 
 class StringPromptHelper:
@@ -51,10 +41,7 @@ class StringPromptHelper:
         Returns:
             str: The formatted content.
         """
-        formatter = DEFAULT_FORMATTER_MAPPING.get(template_format)
-        if not formatter:
-            raise ValueError(f"Unsupported template format: {template_format}")
-        return formatter(content, **kwargs)
+        return TemplateEngine.render(content, template_format, **kwargs)
 
     @staticmethod
     def extract_variables(template: str, template_format: str) -> List[str]:
@@ -68,7 +55,11 @@ class StringPromptHelper:
         Returns:
             List[str]: A list of extracted variable names.
         """
-        extractor = DEFAULT_VARIABLE_EXTRACTOR_MAPPING.get(template_format)
-        if not extractor:
-            raise ValueError(f"Unsupported template format: {template_format}")
-        return extractor(template)
+        return TemplateEngine.extract_variables(template, template_format)
+
+
+__all__ = [
+    "StringPromptHelper",
+    "DEFAULT_FORMATTER_MAPPING",
+    "DEFAULT_VARIABLE_EXTRACTOR_MAPPING",
+]
