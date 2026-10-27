@@ -22,7 +22,7 @@ This example builds a deep-agent style research task as a plain `DurableAgent`, 
 
 ## Prerequisites
 
-- Python 3.11 to 3.13 and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.11 to 3.14 and [`uv`](https://docs.astral.sh/uv/)
 - The [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
 - An API key for an LLM provider. The example uses OpenAI by default (`OPENAI_API_KEY`); see [Switching LLM providers](#switching-llm-providers).
 

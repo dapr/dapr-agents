@@ -190,9 +190,8 @@ class TestWorkflowRegistration:
         mock_runtime = MagicMock()
         agent.register_workflows(mock_runtime)
         return {
-            call.args[0].__name__
-            for call in mock_runtime.register_workflow.call_args_list
-            if call.args
+            call.kwargs["name"]
+            for call in mock_runtime.register_versioned_workflow.call_args_list
         }
 
     def _registered_activity_names(self, agent: DurableAgent) -> set:
@@ -258,7 +257,8 @@ class TestWorkflowRegistration:
         agent_mcp.register_workflows(mock_b)
 
         assert (
-            mock_a.register_workflow.call_count == mock_b.register_workflow.call_count
+            mock_a.register_versioned_workflow.call_count
+            == mock_b.register_versioned_workflow.call_count
         )
         assert (
             mock_a.register_activity.call_count == mock_b.register_activity.call_count

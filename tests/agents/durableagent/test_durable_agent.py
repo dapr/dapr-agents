@@ -1845,6 +1845,78 @@ class TestDurableAgent:
             # Verify it's chained to the original exception
             assert exc_info.value.__cause__ == test_exception
 
+    @pytest.mark.parametrize(
+        "memory_kwargs, expect_summarize",
+        [
+            ({}, True),
+            ({"summarize_on_completion": True}, True),
+            ({"summarize_on_completion": False}, False),
+        ],
+        ids=["default", "explicit-true", "opt-out"],
+    )
+    def test_agent_workflow_summarize_gated_by_memory_config(
+        self, mock_llm, mock_workflow_context, memory_kwargs, expect_summarize
+    ):
+        """The end-of-run summarize activity runs unless the memory config opts out."""
+        memory = AgentMemoryConfig(
+            store=ConversationDaprStateMemory(
+                store_name="teststatestore",
+                workflow_instance_id="test_session",
+            ),
+            **memory_kwargs,
+        )
+        agent = DurableAgent(
+            name="TestDurableAgent",
+            role="Test Durable Assistant",
+            llm=mock_llm,
+            state=AgentStateConfig(
+                store=StateStoreService(store_name="teststatestore")
+            ),
+            memory=memory,
+        )
+        # Opting out of the summary must not disable memory itself.
+        assert agent.memory is not None
+
+        activity_names = []
+
+        def mock_call_activity(activity, **kwargs):
+            activity_name = _activity_method_name(activity)
+            activity_names.append(activity_name)
+            if activity_name == "call_llm":
+                return {"role": "assistant", "content": "done"}
+            if activity_name == "load_tools":
+                return []
+            return None
+
+        mock_workflow_context.call_activity = Mock(side_effect=mock_call_activity)
+        agent._infra._state_model = AgentWorkflowEntry(
+            source="test_source",
+            triggering_workflow_instance_id=None,
+            messages=[],
+            tool_history=[],
+        )
+
+        with (
+            patch.object(
+                agent._infra,
+                "get_state",
+                side_effect=lambda wid: agent._infra._state_model,
+            ),
+            patch.object(agent, "save_state"),
+        ):
+            workflow_gen = agent.agent_workflow(
+                mock_workflow_context, {"task": "Test task"}
+            )
+            result = None
+            try:
+                while True:
+                    result = workflow_gen.send(result)
+            except StopIteration:
+                pass
+
+        assert "finalize_workflow" in activity_names
+        assert ("summarize" in activity_names) is expect_summarize, activity_names
+
 
 class TestCallLlmRequestShape:
     """call_llm must omit tools/tool_choice when starting a fresh structured-output
