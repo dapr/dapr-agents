@@ -30,6 +30,8 @@ from typing import (
     overload,
 )
 
+import grpc
+
 from dapr.clients import DaprClient
 from dapr.ext.workflow import DaprWorkflowClient
 from dapr.ext.workflow.workflow_state import WorkflowState
@@ -44,6 +46,21 @@ from dapr_agents.workflow.utils.registration import (
 )
 
 logger = logging.getLogger(__name__)
+
+# gRPC error detail emitted by the workflow actor runtime when the actor is
+# deactivated (e.g. idle scale-to-zero) while a completion wait is in flight.
+# The workflow itself keeps executing and the actor is re-activated on demand,
+# so this is transient and must be retried rather than treated as fatal.
+_ACTOR_CLOSED_DETAIL = "actor is closed"
+
+
+def _is_actor_closed_error(exc: BaseException) -> bool:
+    """Return True for the transient 'actor is closed' gRPC error."""
+    if not isinstance(exc, grpc.RpcError):
+        return False
+    return exc.code() == grpc.StatusCode.UNKNOWN and _ACTOR_CLOSED_DETAIL in (
+        exc.details() or ""
+    )
 
 
 class WorkflowRunner(SignalMixin):
@@ -419,8 +436,6 @@ class WorkflowRunner(SignalMixin):
                 logger.debug(f"{self._name} Scheduled workflow id={result}")
                 return result
             except Exception as e:
-                import grpc
-
                 is_transient = isinstance(e, grpc.RpcError) and e.code() in (
                     grpc.StatusCode.CANCELLED,
                     grpc.StatusCode.UNAVAILABLE,
@@ -537,7 +552,7 @@ class WorkflowRunner(SignalMixin):
         """
         effective_timeout = timeout_in_seconds or self._timeout_in_seconds
         try:
-            return self._wf_client.wait_for_workflow_completion(
+            return self._wait_for_completion_with_retry(
                 instance_id,
                 fetch_payloads=fetch_payloads,
                 timeout_in_seconds=effective_timeout,
@@ -547,6 +562,64 @@ class WorkflowRunner(SignalMixin):
             return None
 
     # ----------------------- internal helpers ---------------------------
+
+    def _wait_for_completion_with_retry(
+        self,
+        instance_id: str,
+        *,
+        fetch_payloads: bool,
+        timeout_in_seconds: int,
+    ) -> Optional[WorkflowState]:
+        """
+        Wait for a workflow to complete, retrying the transient 'actor is
+        closed' gRPC error with backoff until the timeout budget is spent.
+
+        The workflow actor can be deactivated (e.g. idle scale-to-zero) while
+        a completion wait is in flight. The workflow itself keeps executing,
+        so instead of surfacing the error, keep polling within the caller's
+        timeout budget. All other errors propagate unchanged.
+
+        Args:
+            instance_id: Workflow instance id.
+            fetch_payloads: Include payloads.
+            timeout_in_seconds: Total time budget for the wait.
+
+        Returns:
+            WorkflowState | None: Final state, or None when the budget was
+            spent retrying deactivated actors.
+        """
+        deadline = time.monotonic() + timeout_in_seconds
+        backoff = 1.0
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    "[%s] %s: workflow actor stayed deactivated for %ss; "
+                    "giving up on this wait.",
+                    self._name,
+                    instance_id,
+                    timeout_in_seconds,
+                )
+                return None
+            try:
+                return self._wf_client.wait_for_workflow_completion(
+                    instance_id,
+                    fetch_payloads=fetch_payloads,
+                    timeout_in_seconds=min(timeout_in_seconds, remaining),
+                )
+            except grpc.RpcError as exc:
+                if not _is_actor_closed_error(exc):
+                    raise
+                sleep_for = min(backoff, 5.0)
+                logger.warning(
+                    "[%s] %s: workflow actor was deactivated (expected during "
+                    "scale-to-zero); retrying completion wait in %.1fs",
+                    self._name,
+                    instance_id,
+                    sleep_for,
+                )
+                time.sleep(sleep_for)
+                backoff = min(backoff * 2, 5.0)
 
     async def _await_state(
         self,
@@ -567,7 +640,7 @@ class WorkflowRunner(SignalMixin):
         """
 
         def _wait() -> Optional[WorkflowState]:
-            return self._wf_client.wait_for_workflow_completion(
+            return self._wait_for_completion_with_retry(
                 instance_id,
                 fetch_payloads=fetch_payloads,
                 timeout_in_seconds=timeout_in_seconds,
