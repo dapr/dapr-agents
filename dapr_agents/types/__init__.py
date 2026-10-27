@@ -28,6 +28,7 @@ from .exceptions import (
     PubSubNotAvailableError,
     StructureError,
     ToolError,
+    WorkflowStateConflictError,
 )
 from .graph import Node, Relationship
 from .llm import OpenAIChatCompletionParams, OpenAIModelConfig
@@ -79,6 +80,7 @@ __all__ = [
     "PubSubNotAvailableError",
     "StructureError",
     "ToolError",
+    "WorkflowStateConflictError",
     "Node",
     "Relationship",
     "OpenAIChatCompletionParams",

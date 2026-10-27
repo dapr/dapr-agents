@@ -68,7 +68,7 @@ from dapr_agents.tool.workflow.activity_bridge import (
     ActivityToolContext,
     bridge_workflow_tools,
 )
-from dapr_agents.types import AgentError
+from dapr_agents.types import AgentError, WorkflowStateConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +235,11 @@ class DurableExecutorMixin:
         Raises:
             AgentError: If the executor is not configured, yields an
                 ``error`` event, or ends without a terminal event.
+            WorkflowStateConflictError: If a checkpoint or the final state
+                save finds the stored entry changed since it was read. The
+                activity is retried under the agent's ``retry_policy``
+                (3 attempts by default); with ``max_attempts=1``, or once the
+                attempts are used up, the conflict fails the workflow.
         """
         if self.executor is None:  # Defensive; agent_workflow guards this.
             raise AgentError(
@@ -286,6 +291,7 @@ class DurableExecutorMixin:
             task or "", session_id=session_id, context=payload.get("context")
         )
         failure: Optional[BaseException] = None
+        state_conflict = False
         try:
             async for event in stream:
                 if recorder.handle(event):
@@ -293,6 +299,15 @@ class DurableExecutorMixin:
             if recorder.terminal_error is not None:
                 failure = AgentError(recorder.terminal_error)
             return recorder.result()
+        except WorkflowStateConflictError as exc:
+            # A checkpoint lost an optimistic-concurrency race, so the entry is
+            # stale. Skip the final flush, which would overwrite the newer
+            # state, and let the activity retry (``_executor_workflow`` passes
+            # ``self._retry_policy``) re-run against fresh state. Without a
+            # retry left, the conflict fails the workflow.
+            failure = exc
+            state_conflict = True
+            raise
         except AgentError as exc:
             failure = exc
             raise
@@ -306,7 +321,8 @@ class DurableExecutorMixin:
             try:
                 if failure is not None:
                     recorder.fail(failure)
-                recorder.flush()
+                if not state_conflict:
+                    recorder.flush()
             finally:
                 observer.finish(failure)
                 if emitter is not None:
