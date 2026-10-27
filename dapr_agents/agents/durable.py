@@ -331,6 +331,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             execution: Execution dials for the agent run.
 
             memory: Enable long-term conversation memory storage; defaults to false.
+                Set ``AgentMemoryConfig(summarize_on_completion=False)`` to skip
+                the end-of-run conversation summary (an extra LLM call) while
+                keeping memory configured.
             llm: Chat client; defaults to `get_default_llm()`. Mutually
                 exclusive with ``executor``.
             executor: Stateful agent runtime that is mutually exclusive with ``llm``.
@@ -1149,7 +1152,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 retry_policy=self._retry_policy,
             )
 
-        if self.memory is not None:
+        if self.memory is not None and self._memory.summarize_on_completion:
             yield ctx.call_activity(
                 self._activity_name(self.summarize),
                 input={},
