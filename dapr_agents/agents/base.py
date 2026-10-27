@@ -440,6 +440,9 @@ class AgentBase:
             with DaprClient(**bootstrap_kwargs) as _client:
                 resp: GetMetadataResponse = _client.get_metadata()
                 self.appid = resp.application_id
+                self._dapr_runtime_version = resp.extended_metadata.get(
+                    "daprRuntimeVersion"
+                )
                 components: Sequence[RegisteredComponents] = resp.registered_components
                 for component in components:
                     if (
@@ -1830,6 +1833,24 @@ class AgentBase:
     # ------------------------------------------------------------------
     # Small convenience wrappers
     # ------------------------------------------------------------------
+    def _recent_broadcasts(self) -> List[Dict[str, Any]]:
+        """The most recent team broadcasts, so the LLM knows what peers have reported."""
+        if self.memory is None:
+            return []
+        try:
+            broadcasts = self.memory.get_messages("broadcast") or []
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to load broadcast memory for agent %s; continuing without it.",
+                getattr(self, "name", "unknown"),
+                exc_info=True,
+            )
+            return []
+        return [
+            {"role": m.get("role", "user"), "content": m.get("content", "")}
+            for m in broadcasts[-3:]
+        ]
+
     def list_team_agents(
         self, *, team: Optional[str] = None, include_self: bool = True
     ) -> Dict[str, Any]:

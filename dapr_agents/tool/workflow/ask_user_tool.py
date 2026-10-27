@@ -15,15 +15,19 @@
 
 The tool suspends the workflow via ``wait_for_external_event`` and emits a
 ``USER_INPUT_REQUESTED`` chunk on the session stream so a UI or operator can
-route the question to the user. When the user answers, the workflow resumes
-and the tool returns the response string to the calling LLM as a ToolMessage.
+route the question to the user. While it waits, the prompt is also in the
+workflow's custom status (``{"pending_inputs": [...]}``), so a client that
+reconnects after a restart can still find it. When the user answers, the
+workflow resumes and the tool returns the response string to the calling LLM
+as a ToolMessage.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
-from typing import Any, Generator
+from typing import Any, Dict, Generator, List, Optional
 
 from dapr.ext.workflow import TaskFailedError
 from pydantic import BaseModel, Field
@@ -40,6 +44,20 @@ _ASK_USER_TIMEOUT_SENTINEL = "[user did not respond within timeout]"
 #: ingress (``POST /input``) and in the tool's closure after wake. Prevents
 #: the LLM context from being flooded by an adversarial responder.
 ASK_USER_ANSWER_MAX_LEN = 4096
+
+
+def pending_inputs_from_custom_status(
+    custom_status: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Return the outstanding ``ask_user`` prompts recorded in a workflow's custom status."""
+    try:
+        status = json.loads(custom_status) if custom_status else None
+    except (TypeError, ValueError):
+        return []
+    prompts = status.get("pending_inputs") if isinstance(status, dict) else None
+    if not isinstance(prompts, list):
+        return []
+    return [dict(p) for p in prompts if isinstance(p, dict)]
 
 
 class AskUserArgs(BaseModel):
@@ -71,6 +89,7 @@ def _make_ask_user_impl(publish_stream_event: Any):
         question: str,
         timeout_seconds: int = 600,
         ctx: Any = None,
+        _stream_context: Optional[Dict[str, Any]] = None,
         **_: Any,
     ) -> Generator[Any, Any, str]:
         if ctx is None:
@@ -97,6 +116,12 @@ def _make_ask_user_impl(publish_stream_event: Any):
             request_id = uuid.uuid5(uuid.NAMESPACE_DNS, seed).hex
 
         instance_id = getattr(ctx, "instance_id", None)
+        prompt = {
+            "request_id": request_id,
+            "question": question,
+            "target_instance_id": instance_id,
+            "timeout_seconds": timeout_seconds,
+        }
 
         if instance_id is not None:
             yield ctx.call_activity(
@@ -104,21 +129,19 @@ def _make_ask_user_impl(publish_stream_event: Any):
                 input={
                     "instance_id": instance_id,
                     "event_type": "user_input_requested",
-                    "event_data": {
-                        "request_id": request_id,
-                        "question": question,
-                        "target_instance_id": instance_id,
-                        "timeout_seconds": timeout_seconds,
-                    },
+                    "event_data": prompt,
+                    "stream_context": _stream_context,
                 },
             )
 
+        ctx.set_custom_status(json.dumps({"pending_inputs": [prompt]}))
         event_name = f"{USER_INPUT_EVENT_PREFIX}:{request_id}"
         try:
             answer = yield ctx.wait_for_external_event(
                 event_name, timeout=timedelta(seconds=timeout_seconds)
             )
         except TaskFailedError as exc:
+            ctx.set_custom_status("")
             logger.info(
                 "ask_user timed out (instance=%s request=%s): %s",
                 instance_id,
@@ -132,9 +155,11 @@ def _make_ask_user_impl(publish_stream_event: Any):
                         "instance_id": instance_id,
                         "event_type": "user_input_timed_out",
                         "event_data": {"request_id": request_id},
+                        "stream_context": _stream_context,
                     },
                 )
             return _ASK_USER_TIMEOUT_SENTINEL
+        ctx.set_custom_status("")
 
         # Defence-in-depth: truncate answers that exceed the documented cap
         # even if the HTTP ingress missed it (raise_event can also arrive from
@@ -149,6 +174,7 @@ def _make_ask_user_impl(publish_stream_event: Any):
                     "instance_id": instance_id,
                     "event_type": "user_input_received",
                     "event_data": {"request_id": request_id, "answer": answer},
+                    "stream_context": _stream_context,
                 },
             )
         # Wrap the answer so injection prompts cannot start at byte 0 of the
@@ -187,5 +213,6 @@ __all__ = [
     "ASK_USER_TOOL_NAME",
     "AskUserArgs",
     "build_ask_user_tool",
+    "pending_inputs_from_custom_status",
     "USER_INPUT_EVENT_PREFIX",
 ]

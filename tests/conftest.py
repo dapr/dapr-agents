@@ -111,6 +111,9 @@ class MockDaprWorkflowContext:
         self.continue_as_new = MagicMock()
         self.set_custom_status = MagicMock()
 
+    def is_patched(self, patch_name: str) -> bool:
+        return True
+
 
 class MockWorkflowActivityContext:
     pass

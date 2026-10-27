@@ -47,7 +47,10 @@ from dapr_agents.streaming.keys import (
     STREAM_LISTENER_CONFIG,
     USER_INPUT_EVENT_PREFIX,
 )
-from dapr_agents.tool.workflow.ask_user_tool import ASK_USER_ANSWER_MAX_LEN
+from dapr_agents.tool.workflow.ask_user_tool import (
+    ASK_USER_ANSWER_MAX_LEN,
+    pending_inputs_from_custom_status,
+)
 from dapr_agents.streaming.listeners import (
     register_in_process_queue,
 )
@@ -937,6 +940,9 @@ class AgentRunner(WorkflowRunner):
             status_path: HTTP path for the status endpoint (must include `{instance_id}`).
             workflow_component: Workflow component name used in the returned status URL.
             fetch_status_payloads: Include payloads when fetching workflow status.
+                Outstanding ``ask_user`` prompts of runs that use the
+                history-derived conversation are part of the payloads, so
+                they are missing from ``pending_inputs`` when this is False.
             delivery_mode: Delivery mode forwarded to `subscribe`.
             queue_maxsize: Queue size forwarded to `subscribe` for async delivery.
 
@@ -1005,6 +1011,30 @@ class AgentRunner(WorkflowRunner):
         if not path.startswith("/"):
             path = f"/{path}"
         return path
+
+    @staticmethod
+    async def _pending_inputs(
+        agent: DurableAgent, instance_id: str, state: Any
+    ) -> Dict[str, Dict[str, Any]]:
+        """Outstanding ``ask_user`` prompts of a run, by request id.
+
+        Runs on the history-derived conversation keep them in the workflow's
+        custom status (fetched with the payloads); runs on the old path keep
+        them in the state record. A run with streaming on the old path has
+        each prompt in both places.
+        """
+        prompts = {
+            p.get("request_id"): p
+            for p in pending_inputs_from_custom_status(
+                getattr(state, "serialized_custom_status", None)
+            )
+        }
+        try:
+            entry = await asyncio.to_thread(agent._infra.get_state, instance_id)
+            prompts.update(getattr(entry, "pending_inputs", None) or {})
+        except Exception:  # noqa: BLE001
+            pass
+        return prompts
 
     def _mount_service_routes(
         self,
@@ -1246,13 +1276,9 @@ class AgentRunner(WorkflowRunner):
             # Surface outstanding ask_user prompts so a client that lost the
             # original USER_INPUT_REQUESTED chunk (e.g. after a restart) can
             # recover request_id + target_instance_id and answer via /input.
-            try:
-                entry = await asyncio.to_thread(agent._infra.get_state, instance_id)
-                payload["pending_inputs"] = list(
-                    (getattr(entry, "pending_inputs", None) or {}).values()
-                )
-            except Exception:  # noqa: BLE001
-                payload["pending_inputs"] = []
+            payload["pending_inputs"] = list(
+                (await self._pending_inputs(agent, instance_id, state)).values()
+            )
             return payload
 
         fastapi_app.add_api_route(
@@ -1277,10 +1303,12 @@ class AgentRunner(WorkflowRunner):
             async def _reattach_stream(
                 instance_id: str, request: Request
             ) -> StreamingResponse:
+                # Payloads carry the custom status, where ask_user records the
+                # outstanding prompts of runs on the history-derived conversation.
                 state = await asyncio.to_thread(
                     self._wf_client.get_workflow_state,
                     instance_id,
-                    fetch_payloads=False,
+                    fetch_payloads=True,
                 )
                 if state is None:
                     raise HTTPException(
@@ -1349,14 +1377,8 @@ class AgentRunner(WorkflowRunner):
                     # reconnecting after a restart never saw the original
                     # USER_INPUT_REQUESTED chunk (it was a cached activity and
                     # pub/sub doesn't retain it), so recover request_id +
-                    # target_instance_id from durable state before tailing live.
-                    try:
-                        _entry = await asyncio.to_thread(
-                            agent._infra.get_state, instance_id
-                        )
-                        _pending = getattr(_entry, "pending_inputs", None) or {}
-                    except Exception:  # noqa: BLE001
-                        _pending = {}
+                    # target_instance_id before tailing live.
+                    _pending = await self._pending_inputs(agent, instance_id, state)
                     for _req_id, _data in _pending.items():
                         yield formatter(
                             AgentStreamChunk(

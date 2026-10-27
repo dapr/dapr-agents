@@ -127,6 +127,7 @@ def mock_ctx():
     ctx = DaprWorkflowContext()
     ctx.instance_id = "wf-hitl-test"
     ctx.is_replaying = False
+    ctx.is_patched = Mock(return_value=False)  # old path
     ctx.call_activity = Mock()
     ctx.wait_for_external_event = Mock()
     ctx.create_timer = Mock()
