@@ -204,7 +204,14 @@ jobs:
         uv pip list | grep -i '^opentelemetry'
     - name: Run tests
       run: |
-        uv run --no-sync pytest tests ext -m "not integration"
+        uv run --no-sync pytest tests -m "not integration"
+    # Own session, as in the build job: both suites have a tests/conftest.py,
+    # and pytest refuses to register the second under the same module name.
+    - name: Run Drasi extension tests
+      env:
+        DAPR_AGENTS_REQUIRE_DRASI: "1"
+      run: |
+        uv run --no-sync pytest ext -m "not integration"
 
   package:
     needs: lint
