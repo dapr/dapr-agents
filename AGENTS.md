@@ -64,6 +64,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 
 **Code Quality** (enforced by CI):
 - **Python version**: `>=3.11,<3.15` (the optional `vectorstore` group is still `<3.14`); the root `pyproject.toml` `requires-python` is the source of truth, so update this line too when it changes. When changing the supported range, update `requires-python` in every workspace member at once (root, `ext/*`, `quickstarts/`, `examples/*`) and run `uv lock`
+- **Dependency bumps in workspace members**: every `ext/*`, `quickstarts/` and `examples/*` project is locked by the root `uv.lock`, and CI installs with `--frozen`, so a stale lock is not caught. After changing a member's `pyproject.toml` (including a Dependabot security PR), run `uv lock` at the repository root and commit the updated `uv.lock`
 - **Formatting**: ruff (auto-format, no exceptions)
 - **Linting**: flake8 (ignores: E501, F401, W503, E203, E704)
 - **Type Checking**: mypy (config: `./mypy.ini`)
