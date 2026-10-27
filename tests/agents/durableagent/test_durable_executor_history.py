@@ -43,6 +43,8 @@ from tests.agents.durableagent.test_durable_executor import (  # noqa: F401
     _ScriptedExecutor,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 def _consume(agent: DurableAgent, payload: Dict[str, Any]) -> Any:
     return asyncio.run(agent._consume_executor(payload))
@@ -166,7 +168,12 @@ class TestRunExecutorActivity:
 
         result = agent.run_executor(
             Mock(),
-            {"task": "hi", "instance_id": "inst-1", "session_id": "inst-1"},
+            {
+                "task": "hi",
+                "instance_id": "inst-1",
+                "session_id": "inst-1",
+                "stream_context": None,
+            },
         )
 
         assert result == {"role": "assistant", "content": "done"}

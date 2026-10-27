@@ -20,7 +20,7 @@ import sys
 import textwrap
 from types import SimpleNamespace
 from typing import Any, Dict, List
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -51,6 +51,8 @@ from tests.agents.durableagent.test_durable_executor import (  # noqa: F401
     patch_dapr_check,
     setup_env,
 )
+
+pytestmark = pytest.mark.usefixtures("history_path_only")
 
 CALL_LLM = "dapr.agents.HistoryAgent.call_llm"
 
@@ -388,6 +390,27 @@ class TestConversationCache:
         assert result == answer
         agent.llm.generate.assert_not_called()
 
+    def test_a_reused_instance_id_does_not_get_the_earlier_answer(self, agent):
+        """A new execution under the same instance id, starting with the same task."""
+        user = {"role": "user", "content": "hi"}
+        agent._remember("wf-1", [user, {"role": "assistant", "id": "A1"}], "run-1")
+        assert agent._recorded_result("wf-1", 0, None, [user], "run-2") is None
+        assert agent._recorded_result("wf-1", 0, None, [user], "run-1")["id"] == "A1"
+
+    def test_summary_includes_the_last_turns_tool_replies(self, agent):
+        """The last allowed turn ran tools; no call_llm followed to commit the replies."""
+        reply = {"role": "tool", "tool_call_id": "c1", "content": "42"}
+        payload = {
+            "instance_id": "wf-1",
+            "new_messages": [reply],
+            "history_len": 2,
+            "last_id": "A1",
+        }
+        with patch.object(agent, "_summarize_conversation", return_value={}) as summary:
+            agent.summarize(SimpleNamespace(workflow_id="wf-1"), payload)
+        messages = summary.call_args.args[1]
+        assert len(messages) == 3 and messages[-1] == reply
+
     def test_a_different_call_is_not_mistaken_for_a_redelivery(self, agent):
         agent._remember(
             "wf-1",
@@ -564,5 +587,11 @@ class TestWorkflowInputs:
         assert [i["history_len"] for i in llm_inputs] == [0, 2, 5, 7]
         assert [len(i["new_messages"]) for i in llm_inputs] == [1, 2, 1, 2]
         assert summarized == [
-            {"instance_id": "parent-1", "history_len": 10, "last_id": "L4"}
+            {
+                "instance_id": "parent-1",
+                "new_messages": [],
+                "history_len": 10,
+                "last_id": "L4",
+                "execution": "2026-10-26T00:00:00",
+            }
         ]

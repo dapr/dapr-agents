@@ -44,6 +44,8 @@ from tests.streaming.test_call_llm_streaming import (  # noqa: F401
     _content_stream,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 @pytest.fixture(autouse=True)
 def registered_capturing_listener():

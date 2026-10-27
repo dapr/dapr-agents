@@ -40,6 +40,8 @@ from tests.agents.durableagent.test_durable_agent import (  # noqa: F401
     MockDaprClient,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 class TestDurableAgent:
     """Test cases for the DurableAgent class."""
@@ -590,7 +592,7 @@ class TestCallLlmRequestShape:
         self._stub_call_llm_helpers(agent, messages)
         agent.call_llm(
             self._ctx(),
-            payload={"instance_id": "wf-shape-1", "source": "direct"},
+            payload={"instance_id": "wf-shape-1", "source": "direct", "history_len": 0},
         )
         return agent.llm.generate.call_args.kwargs
 
@@ -600,7 +602,7 @@ class TestCallLlmRequestShape:
 
         agent_with_tool.call_llm(
             self._ctx(),
-            payload={"instance_id": "wf-shape-1", "source": "direct"},
+            payload={"instance_id": "wf-shape-1", "source": "direct", "history_len": 0},
         )
 
         kwargs = agent_with_tool.llm.generate.call_args.kwargs
@@ -625,6 +627,7 @@ class TestCallLlmRequestShape:
             payload={
                 "instance_id": "wf-shape-1",
                 "source": "direct",
+                "history_len": 0,
                 "response_format": "IterablePlanStep",
             },
         )
@@ -660,6 +663,7 @@ class TestCallLlmRequestShape:
             payload={
                 "instance_id": "wf-shape-1",
                 "source": "direct",
+                "history_len": 0,
                 "response_format": "ProgressCheckOutput",
             },
         )
@@ -689,6 +693,7 @@ class TestCallLlmRequestShape:
                 payload={
                     "instance_id": "wf-shape-1",
                     "source": "direct",
+                    "history_len": 0,
                     "response_format": "IterablePlanStep",
                 },
             )

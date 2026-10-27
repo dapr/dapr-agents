@@ -115,6 +115,19 @@ class MockDaprWorkflowContext:
         return True
 
 
+@pytest.fixture
+def history_path_only(monkeypatch):
+    """Fail the test if it reaches a pre-patch (``_legacy``) DurableAgent method."""
+    from dapr_agents.agents.durable import DurableAgent
+
+    for name in [n for n in dir(DurableAgent) if n.endswith("_legacy")]:
+
+        def reached(*_args, _name=name, **_kwargs):
+            raise AssertionError(f"{_name} ran in a history-path test")
+
+        monkeypatch.setattr(DurableAgent, name, reached)
+
+
 class MockWorkflowActivityContext:
     pass
 

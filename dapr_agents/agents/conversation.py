@@ -41,11 +41,15 @@ class Transcript:
         length: Messages in the conversation before ``pending``.
         last_id: ``id`` of the last assistant message, ``None`` before the first.
         pending: Messages added since the previous ``call_llm``.
+        execution: Identifies this execution of the workflow instance, so a
+            cache entry an earlier execution left under a reused instance id
+            is never taken for this one's.
     """
 
     length: int = 0
     last_id: Optional[str] = None
     pending: List[Dict[str, Any]] = field(default_factory=list)
+    execution: Optional[str] = None
 
     def add(self, *messages: Dict[str, Any]) -> None:
         self.pending.extend(messages)
@@ -56,6 +60,7 @@ class Transcript:
             "new_messages": list(self.pending),
             "history_len": self.length,
             "last_id": self.last_id,
+            "execution": self.execution,
         }
 
     def advance(self, assistant_message: Dict[str, Any]) -> None:

@@ -38,6 +38,8 @@ from tests.agents.durableagent.test_llm_hooks import (  # noqa: F401
     _make_agent,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 @pytest.fixture
 def mock_llm():

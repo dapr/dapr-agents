@@ -44,6 +44,8 @@ from tests.agents.durableagent.test_hitl_workflow import (  # noqa: F401
     _activity_input,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 @pytest.fixture
 def mock_llm():

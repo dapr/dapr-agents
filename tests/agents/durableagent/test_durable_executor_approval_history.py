@@ -50,6 +50,8 @@ from tests.agents.durableagent.test_durable_executor_approval import (  # noqa: 
     _mcp_tool,
 )
 
+pytestmark = pytest.mark.usefixtures("history_path_only")
+
 
 @pytest.fixture
 def claude(monkeypatch, tmp_path):
@@ -534,7 +536,7 @@ class TestClaudeInDurableAgent:
                 )
             ]
         )
-        paused, _ = _consume(
+        paused = _consume(
             agent,
             {"task": "weather?", "instance_id": "i", "session_id": caller_session},
         )
@@ -563,7 +565,7 @@ class TestClaudeInDurableAgent:
         asyncio.run(store.append(key, [{"type": "user", "uuid": "u1"}, deferred]))
         # Queue the resume response without clearing the initial client.
         client.responses = [[result_message(session_id=sid, result="sunny in P")]]
-        result, _ = _consume(agent, resume)
+        result = _consume(agent, resume)
 
         assert result == done
         # Each run opens its own SDK client; the resumed one picks up the

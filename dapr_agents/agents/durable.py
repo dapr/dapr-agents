@@ -463,10 +463,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         self._wf_client_lock = threading.Lock()
 
         # Conversation per workflow instance, as the last call_llm on this
-        # worker left it. See dapr_agents.agents.conversation.
-        self._conversations: LRUCache[str, List[Dict[str, Any]]] = LRUCache(
-            maxsize=_CONVERSATION_CACHE_SIZE
-        )
+        # worker left it, tagged with the execution that left it. See
+        # dapr_agents.agents.conversation.
+        self._conversations: LRUCache[
+            str, Tuple[Optional[str], List[Dict[str, Any]]]
+        ] = LRUCache(maxsize=_CONVERSATION_CACHE_SIZE)
         self._conversations_lock = threading.Lock()
 
         # Per-session listener cache, keyed by (instance_id, cfg_hash).
@@ -654,7 +655,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         final_message: Dict[str, Any] = {}
         turn = 0
         _workflow_exc: Optional[Exception] = None
-        transcript = Transcript()
+        transcript = Transcript(execution=ctx.current_utc_datetime.isoformat())
         if task:
             transcript.add({"role": "user", "content": task})
 
@@ -1120,11 +1121,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         ):
             yield ctx.call_activity(
                 self._activity_name(self.summarize),
-                input={
-                    "instance_id": ctx.instance_id,
-                    "history_len": transcript.length,
-                    "last_id": transcript.last_id,
-                },
+                input={"instance_id": ctx.instance_id, **transcript.payload()},
                 retry_policy=self._retry_policy,
             )
 
@@ -1980,7 +1977,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             self._activity_name(self.get_team_members),
             retry_policy=self._retry_policy,
         )
-        transcript = Transcript()
+        transcript = Transcript(execution=ctx.current_utc_datetime.isoformat())
 
         def llm_input(**extra: Any) -> Dict[str, Any]:
             return {
@@ -2449,11 +2446,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         if self.memory is not None and self._memory.summarize_on_completion:
             yield ctx.call_activity(
                 self._activity_name(self.summarize),
-                input={
-                    "instance_id": instance_id,
-                    "history_len": transcript.length,
-                    "last_id": transcript.last_id,
-                },
+                input={"instance_id": instance_id, **transcript.payload()},
                 retry_policy=self._retry_policy,
             )
 
@@ -3417,11 +3410,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 )
 
         history_id = self._history_instance_id(ctx, payload)
+        execution = payload.get("execution")
         recorded = self._recorded_result(
             history_id,
             payload.get("history_len", 0),
             payload.get("last_id"),
             new_messages,
+            execution,
         )
         if recorded is not None:
             logger.info(
@@ -3431,7 +3426,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             return recorded
         conversation = (
             self._conversation(
-                history_id, payload.get("history_len", 0), payload.get("last_id")
+                history_id,
+                payload.get("history_len", 0),
+                payload.get("last_id"),
+                execution,
             )
             + new_messages
         )
@@ -3676,7 +3674,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         # Skip printing for orchestrators' internal LLM calls
         if not self.orchestrator:
             self.text_formatter.print_message(assistant_message)
-        self._remember(history_id, conversation + [assistant_message])
+        self._remember(history_id, conversation + [assistant_message], execution)
         return assistant_message
 
     def _call_llm_legacy(
@@ -3991,13 +3989,18 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         return str(payload.get("instance_id"))
 
     def _conversation(
-        self, instance_id: str, length: int, last_id: Optional[str]
+        self,
+        instance_id: str,
+        length: int,
+        last_id: Optional[str],
+        execution: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Return the conversation of ``instance_id`` so far, as a new list.
 
         Served from this worker's cache when it holds exactly ``length``
-        messages ending with the assistant message ``last_id``. Otherwise the
+        messages of this ``execution`` ending with the assistant message
+        ``last_id``. Otherwise the
         conversation is rebuilt from the instance's workflow history, which
         covers a cold or restarted worker, an eviction, and a retried call
         whose earlier attempt ran elsewhere.
@@ -4008,9 +4011,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         if length == 0:
             return []
         with self._conversations_lock:
-            cached = self._conversations.get(instance_id)
-        if cached and len(cached) == length and cached[-1].get("id") == last_id:
-            return list(cached)
+            entry = self._conversations.get(instance_id)
+        if entry is not None and entry[0] == execution:
+            cached = entry[1]
+            if len(cached) == length and cached[-1].get("id") == last_id:
+                return list(cached)
         messages = fold_conversation(
             self._instance_history(instance_id), self._activity_name(self.call_llm)
         )
@@ -4034,17 +4039,23 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         length: int,
         last_id: Optional[str],
         new_messages: List[Dict[str, Any]],
+        execution: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         The assistant message this call already produced on this worker, if any.
 
         An activity is delivered at least once. When its completion was lost
         after it ran here, the cache still holds the conversation it left: the
-        prefix this call was given, its new messages, then its answer.
+        prefix this call was given, its new messages, then its answer. The
+        entry must come from the same execution: a new execution can reuse the
+        instance id and start with the same task.
         """
         with self._conversations_lock:
-            cached = self._conversations.get(instance_id)
-        if not cached or len(cached) != length + len(new_messages) + 1:
+            entry = self._conversations.get(instance_id)
+        if entry is None or entry[0] != execution:
+            return None
+        cached = entry[1]
+        if len(cached) != length + len(new_messages) + 1:
             return None
         if length and cached[length - 1].get("id") != last_id:
             return None
@@ -4052,9 +4063,14 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             return None
         return dict(cached[-1])
 
-    def _remember(self, instance_id: str, messages: List[Dict[str, Any]]) -> None:
+    def _remember(
+        self,
+        instance_id: str,
+        messages: List[Dict[str, Any]],
+        execution: Optional[str] = None,
+    ) -> None:
         with self._conversations_lock:
-            self._conversations[instance_id] = messages
+            self._conversations[instance_id] = (execution, messages)
 
     def _forget(self, instance_id: str) -> None:
         with self._conversations_lock:
@@ -4963,9 +4979,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         to the configured memory store (keyed by workflow instance id).
 
         Args:
-            payload: ``instance_id`` (the memory key), ``history_len`` and
-                ``last_id`` (the scheduling workflow's conversation, as for
-                ``call_llm``).
+            payload: ``instance_id`` (the memory key) and the scheduling
+                workflow's conversation keys, as for ``call_llm``:
+                ``new_messages``, ``history_len``, ``last_id``, ``execution``.
 
         Returns:
             Dict with "content" key holding the summary text, or empty dict if
@@ -4974,9 +4990,13 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         if "history_len" not in payload:  # scheduled by a run on the old path
             return self._summarize_legacy(ctx, payload)
         history_id = self._history_instance_id(ctx, payload)
+        # The last turn's tool replies are still pending: no call_llm followed them.
         messages = self._conversation(
-            history_id, payload.get("history_len", 0), payload.get("last_id")
-        )
+            history_id,
+            payload.get("history_len", 0),
+            payload.get("last_id"),
+            payload.get("execution"),
+        ) + list(payload.get("new_messages") or [])
         # The last reader of the conversation.
         self._forget(history_id)
         tool_calls = [
