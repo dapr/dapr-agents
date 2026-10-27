@@ -43,6 +43,8 @@ limitations under the License.
 **Versioning**:
 Dapr Agents use semantic versioning for releasing. Prefer making changes that allow backward compatability.
 
+**Workflow changes**: Workflow bodies are replayed, and runs can span upgrades. Put a change that alters which activities, timers or child workflows run, or their order, behind `ctx.is_patched(...)` or into a new workflow version, and change activity inputs only additively. See [Changing workflow code](./docs/development/README.md#changing-workflow-code).
+
 **License Header**: Every new `.py` file (source and test) must start with the Apache 2.0 header below — copied verbatim, `#`-comment style, with the year `2026`, followed by a blank line before the first import or docstring:
 
 ```python
