@@ -178,6 +178,7 @@ class TestDurableAgent:
         context = DaprWorkflowContext()
         context.instance_id = "test-instance-123"
         context.is_replaying = False
+        context.is_patched = Mock(return_value=False)  # old path
         context.call_activity = Mock()
         context.wait_for_external_event = Mock()
         context.set_custom_status = Mock()

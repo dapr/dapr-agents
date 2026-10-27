@@ -95,8 +95,11 @@ class AgentExecutorBase(ABC):
 
         Args:
             prompt: User/task input for this turn.
-            session_id: Optional identifier to resume a prior session.
-                If ``None``, the executor should create a fresh session.
+            session_id: Session to start or resume. ``DurableAgent`` passes
+                the caller's id, or one id per workflow instance so a retried
+                activity resumes the same session: an id with no stored
+                session must start a fresh one under that id. If ``None``,
+                the executor should create a fresh session.
             context: Provider-specific extras (MCP server handles,
                 tool catalogs, scoped permissions, etc.). Implementations
                 may ignore unknown keys. Executors that support tool
