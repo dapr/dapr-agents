@@ -20,7 +20,7 @@ import inspect
 import json
 import threading
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -4127,6 +4127,28 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         wrapper.__name__ = name
         return wrapper
 
+    def _register_versions(
+        self,
+        runtime: wf.WorkflowRuntime,
+        name: str,
+        versions: Sequence[Tuple[str, Callable[..., Any]]],
+    ) -> None:
+        """
+        Register every version of one workflow under ``name``.
+
+        ``versions`` lists ``(version_name, method)`` pairs, oldest first. New
+        instances run the last one, and so do instances started before
+        versioning; any other instance keeps the version it started on. See
+        "Changing workflow code" in ``docs/development/README.md``.
+        """
+        for i, (version, method) in enumerate(versions):
+            runtime.register_versioned_workflow(
+                self._named(method, name),
+                name=name,
+                version_name=version,
+                is_latest=i == len(versions) - 1,
+            )
+
     def _activity_name(self, method: Union[str, Callable[..., Any]]) -> str:
         """
         Return the agent-scoped registered name of an activity.
@@ -4217,12 +4239,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             runtime: The Dapr workflow runtime to register with.
         """
         # Primary entry point — unique per agent
-        runtime.register_workflow(
-            self._named(self.agent_workflow, self.agent_workflow_name)
+        self._register_versions(
+            runtime, self.agent_workflow_name, (("v1", self.agent_workflow),)
         )
         if self.broadcast_topic_name:
-            runtime.register_workflow(
-                self._named(self.on_broadcast, self.broadcast_workflow_name)
+            self._register_versions(
+                runtime, self.broadcast_workflow_name, (("v1", self.on_broadcast),)
             )
 
         # Standard agent activities, all scoped per agent
@@ -4233,11 +4255,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
         # Internal orchestration workflow and activities
         if self._orchestration_strategy:
-            runtime.register_workflow(
-                self._named(
-                    self.orchestration_workflow,
-                    orchestration_workflow_id(self.name, infra=self._infra),
-                )
+            self._register_versions(
+                runtime,
+                orchestration_workflow_id(self.name, infra=self._infra),
+                (("v1", self.orchestration_workflow),),
             )
 
             extras = (
