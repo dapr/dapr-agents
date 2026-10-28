@@ -27,7 +27,10 @@ import pytest
 
 from dapr_agents.agents.components import DaprInfra, _REGISTRY_AGENTS_KEY
 from dapr_agents.agents.configs import AgentRegistryConfig, RegistryIndexRetryConfig
-from dapr_agents.storage.daprstores.stateservice import StateStoreError
+from dapr_agents.storage.daprstores.stateservice import (
+    InvalidStateError,
+    StateStoreError,
+)
 from tests.fake_state_store import FakeEtagStateStore
 
 
@@ -171,6 +174,59 @@ def test_mutate_team_index_gives_up_when_always_conflicting():
 
     assert ok is False
     assert load_calls["n"] == 4, "should retry up to the attempt bound, then give up"
+
+
+def test_mutate_team_index_does_not_retry_invalid_state(caplog):
+    """Malformed index state can never succeed, so it must fail on the first load."""
+    store = FakeEtagStateStore()
+    index_key = "agents:default:_index"
+
+    load_calls = {"n": 0}
+
+    def invalid_load(**kw):
+        load_calls["n"] += 1
+        raise InvalidStateError("malformed index")
+
+    store.load_with_etag = invalid_load
+
+    infra = _make_infra(
+        "agent-0", store, retry=_fast_retry(max_attempts=4, retry_timeout=5.0)
+    )
+
+    ok = infra._mutate_team_index(
+        index_key=index_key,
+        partition_meta={},
+        mutate=lambda agents_list: True,
+    )
+
+    assert ok is False
+    assert load_calls["n"] == 1
+    assert not any("Conflict" in r.getMessage() for r in caplog.records)
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_mutate_team_index_does_not_retry_programming_errors():
+    """A bug in the mutate callback repeats forever, so it must not be retried."""
+    store = FakeEtagStateStore()
+    index_key = "agents:default:_index"
+    store.seed(index_key, {_REGISTRY_AGENTS_KEY: ["agent-0"]})
+
+    mutate_calls = {"n": 0}
+
+    def broken_mutate(agents_list):
+        mutate_calls["n"] += 1
+        raise TypeError("bug in mutate")
+
+    infra = _make_infra(
+        "agent-0", store, retry=_fast_retry(max_attempts=4, retry_timeout=5.0)
+    )
+
+    ok = infra._mutate_team_index(
+        index_key=index_key, partition_meta={}, mutate=broken_mutate
+    )
+
+    assert ok is False
+    assert mutate_calls["n"] == 1
 
 
 def test_mutate_team_index_retries_then_succeeds():
