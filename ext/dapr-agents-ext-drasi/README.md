@@ -26,7 +26,7 @@ limitations under the License.
 
 The APIs documented here describe this source checkout. The published `dapr-agents-ext-drasi==0.1.0` package predates this work: it exposes `drasi_trigger()` and does not include `register_drasi_trigger()` or `drasi_subscription_lifecycle()`.
 
-The next extension release version has not been selected; the unchanged `0.1.0` source version is not a publication target. This layer declares `dapr-agents>=1.0.7,<2.0.0`: core `1.0.6` loses explicit tool-choice settings when the lifecycle adds tools to an initially tool-less agent. Recheck the minimum against the final assembled contribution before publication. No compatibility alias or migration layer is provided for these pre-release API changes.
+The next extension release version has not been selected; the unchanged `0.1.0` source version is not a publication target. This layer requires `dapr-agents>=1.0.7,<2.0.0`: core `1.0.6` loses explicit tool-choice settings when the lifecycle adds tools to an initially tool-less agent. Compatibility with released core `1.0.7` has been verified. No compatibility alias or migration layer is provided for these pre-release API changes.
 
 To use the current APIs, install this checkout from the repository root:
 
