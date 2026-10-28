@@ -159,6 +159,9 @@ jobs:
         # setuptools-scm needs tags; a shallow clone yields 0.0.0.dev and
         # fails the drasi ext's dapr-agents>=1.0.6 check in `uv pip check`.
         fetch-depth: 0
+    - name: Fetch upstream release tags for forks
+      if: github.event.repository.fork
+      run: git fetch --no-recurse-submodules https://github.com/dapr/dapr-agents.git '+refs/tags/*:refs/tags/*'
     - name: Set up Python 3.11
       uses: actions/setup-python@v6
       with:
@@ -282,7 +285,10 @@ jobs:
         modules = [dapr_agents]
         if sys.argv[1] == "drasi":
             import dapr_agents.ext.drasi as drasi
-            from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger
+            from dapr_agents.ext.drasi import (
+                DrasiChangeEvent, DrasiOperation, register_drasi_trigger,
+                drasi_subscription_lifecycle, DrasiSubscriptionLifecycle, DrasiLifecycleError,
+            )
 
             modules.append(drasi)
         else:

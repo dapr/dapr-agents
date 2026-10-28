@@ -125,6 +125,11 @@ class DrasiSubscriptionManager(SubscriptionManager):
             return self._finish_subscribe(pending)
 
     def unsubscribe(self, query_id: str) -> None:
+        """Remove owned intent after confirmed router removal or absence.
+
+        The query need not remain in the catalog. Retired-query cleanup tools
+        use the same incarnation checks and durable recovery as ordinary removal.
+        """
         self._validate_query_id(query_id)
         with self._lock:
             current = self._load().document.intents.get(query_id)
