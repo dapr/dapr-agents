@@ -249,8 +249,12 @@ def test_interrupted_pending_operation_recovers(
         runtime.completed()
 
 
-def test_pending_and_unavailable_events_do_not_reach_model(runtime: Runtime) -> None:
+@pytest.mark.parametrize("rule_present", (True, False))
+def test_retired_query_cleanup_and_event_discard(
+    runtime: Runtime, rule_present: bool
+) -> None:
     runtime.subscribe()
+    healthy = runtime.subscribe(OTHER_QUERY)
     runtime.publish(501, added=[{"errorId": "retained-delivery"}])
     entry_id, event = runtime.delivered()[0]
     runtime.completed()
@@ -275,8 +279,16 @@ def test_pending_and_unavailable_events_do_not_reach_model(runtime: Runtime) -> 
         lambda: runtime.client.get(f"{runtime.router_url}/readyz").status_code == 200,
         "retired-query router startup",
     )
+    if not rule_present:
+        rule = next(rule for rule in runtime.rules() if rule["query_id"] == QUERY)
+        removed = runtime.request(
+            "POST",
+            f"{runtime.agent_dapr}/v1.0/invoke/drasi-router.drasi-integration/method/admin/rules/remove",
+            json={"query_id": QUERY, "subscriber": rule["subscriber"]},
+        )
+        assert removed == {"removed": True}
     runtime.compose("start", "agent")
-    wait_for(
+    runtime.info = wait_for(
         lambda: runtime.request("GET", f"{runtime.agent_url}/ready"),
         "retired-query agent preparation",
         timeout=90,
@@ -289,6 +301,18 @@ def test_pending_and_unavailable_events_do_not_reach_model(runtime: Runtime) -> 
         query["query_id"]
         for query in runtime.request("GET", f"{runtime.agent_url}/catalog")["queries"]
     } == {OTHER_QUERY}
+    assert not any(
+        name.startswith("subscribe_service-errors_") for name in runtime.info["tools"]
+    )
+    runtime.unsubscribe(QUERY)
+    assert runtime.intent()["intents"] == {OTHER_QUERY: healthy}
+    assert {rule["query_id"] for rule in runtime.rules()} == {OTHER_QUERY}
+    runtime.unsubscribe(QUERY)
+    runtime.wait_consumed(runtime.publish_delivery(event_data(event)))
+    assert runtime.scheduling() == []
+    assert len(runtime.evidence()["calls"]) == before
+    runtime.publish(502, query_id=OTHER_QUERY, added=[{"rolloutId": "still-monitored"}])
+    runtime.completed(2)
 
 
 def test_ack_waits_for_acceptance_not_workflow_completion(runtime: Runtime) -> None:

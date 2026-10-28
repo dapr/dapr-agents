@@ -128,6 +128,7 @@ Notes:
     Unsubscribe must never bypass incarnation checks.
 - The lifecycle owns its default workflow client and retries failed closure.
     Injected `workflow_client=` instances remain caller-owned and are never closed.
+- Build unsubscribe-only tools for retained query IDs absent from the startup catalog, using validated scoped intent and the existing incarnation-checked manager. The factory stays I/O-free, and all tool collisions must fail before persistent mutation or hosting.
 - Generated schema files under `schemas/unpacked/` should be regenerated via
     `scripts/generate-drasi-models.sh`; do not hand-edit them.
 

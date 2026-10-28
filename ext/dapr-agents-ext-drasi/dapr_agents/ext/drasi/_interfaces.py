@@ -180,7 +180,9 @@ class SubscriptionManager(Protocol):
 
         Already absent local intent is a successful no-op. An uncertain failure
         retains pending intent; rejection retains unavailable intent for explicit
-        recovery. Retired catalog queries can still unsubscribe.
+        recovery. Retired catalog queries can still unsubscribe, including
+        through their retained query-bound cleanup tools. A missing catalog
+        entry alone is not confirmation that the router rule is absent.
         """
         ...
 

@@ -94,6 +94,7 @@ Logs are also captured when startup fails; full artifacts are collected only aft
 | Router and agent restart | Durable rules/instructions survive; incarnation is retained; no startup model turn |
 | Interrupted mutations | Stop the real router, observe persisted pending intent, kill the agent, then restart and reconcile subscribe/update/unsubscribe |
 | Inactive/stale/unavailable input | Already-published deliveries are consumed without scheduling or model work |
+| Retired-query cleanup | After catalog removal and restart, a generated unsubscribe-only tool clears saved intent whether its router rule still exists or was already removed; unrelated monitoring remains active |
 | ACK boundary | Hold scheduling before acceptance and observe Redis pending state; then accept while the model remains blocked and observe broker acknowledgement before workflow completion |
 | Frozen instructions | Updating a subscription while scheduling is held cannot rewrite an already admitted task |
 | Intent failures | Invalid persisted intent and an actual store outage request retry, not success/absence |

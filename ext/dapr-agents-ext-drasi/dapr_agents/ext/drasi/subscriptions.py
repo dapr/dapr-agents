@@ -273,7 +273,14 @@ class DrasiSubscriptionLifecycle(AbstractAsyncContextManager[AgentRunner]):
             manager = DrasiSubscriptionManager(
                 repository=repository, router=self._router
             )
-            tools = build_subscription_tools(catalog, manager)
+            snapshot = repository.load()
+            tools = build_subscription_tools(
+                catalog,
+                manager,
+                retained_query_ids=tuple(snapshot.document.intents)
+                if snapshot is not None
+                else (),
+            )
             executor = self._agent.tool_executor
             for tool in tools:
                 if executor.get_tool(tool.name) is not None:
@@ -295,7 +302,7 @@ class DrasiSubscriptionLifecycle(AbstractAsyncContextManager[AgentRunner]):
                     "Drasi identity or infrastructure changed during preparation."
                 )
 
-            if repository.load() is None:
+            if snapshot is None:
                 repository.initialize(
                     IntentDocument(format_version=1, scope=config.scope, intents={})
                 )

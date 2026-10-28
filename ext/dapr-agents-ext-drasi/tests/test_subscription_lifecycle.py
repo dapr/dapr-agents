@@ -62,6 +62,7 @@ from dapr_agents.ext.drasi._registration import (
 )
 from dapr_agents.ext.drasi.delivery import DrasiDeliveryError
 from dapr_agents.ext.drasi.intent_store import DaprIntentRepository
+from dapr_agents.ext.drasi.subscription_tools import _tool_name
 from dapr_agents.llm import OpenAIChatClient
 from dapr_agents.tool import AgentTool
 from dapr_agents.workflow.runners.agent import AgentRunner
@@ -405,6 +406,115 @@ async def test_uncertain_reconciliation_still_prevents_hosting(
     assert pending.last_outcome.outcome == "uncertain"
     harness.runtime.start.assert_not_called()
     assert harness.streams == []
+
+
+@pytest.mark.parametrize("initial_status", ("active", "unavailable"))
+@pytest.mark.parametrize("removed", (True, False))
+@pytest.mark.asyncio
+async def test_retired_query_cleanup_removes_only_its_saved_subscription(
+    harness: _Harness,
+    intent_document: IntentDocument,
+    initial_status: SubscriptionStatus,
+    removed: bool,
+) -> None:
+    retired = intent_document.intents["service-errors"]
+    retired.status = initial_status
+    healthy = intent_document.intents["rollout-status"]
+    harness.repository().initialize(intent_document)
+    harness.server.catalog["queries"] = [
+        query
+        for query in harness.server.catalog["queries"]
+        if query["query_id"] != retired.query_id
+    ]
+    harness.server.queue(
+        "subscribe",
+        _success(
+            _subscribe_response(
+                harness.scope,
+                query_id=healthy.query_id,
+                subscription_incarnation=healthy.incarnation,
+                operations=[op.value for op in healthy.operations],
+            )
+        ),
+    )
+
+    async with harness.lifecycle():
+        executor = harness.agent.tool_executor
+        assert executor.get_tool(_tool_name("subscribe", retired.query_id)) is None
+        cleanup = executor.get_tool(_tool_name("unsubscribe", retired.query_id))
+        assert cleanup is not None
+        before = harness.repository().get(healthy.query_id)
+        assert before is not None and before.status == "active"
+        retained = harness.repository().get(retired.query_id)
+        assert retained is not None and retained.status == "unavailable"
+        assert (
+            retired.query_id
+            in _tool(harness.agent, "list_drasi_subscriptions").run().content[0].text
+        )
+
+        harness.server.queue(
+            "unsubscribe", _success({"query_id": retired.query_id, "removed": removed})
+        )
+        assert not cleanup.run().isError
+        assert harness.server.calls[-1]["name"] == "unsubscribe"
+        assert harness.server.calls[-1]["arguments"] == {
+            "query_id": retired.query_id,
+            "subscriber": to_wire(harness.scope.subscriber),
+            "subscription_incarnation": retired.incarnation,
+        }
+        assert harness.repository().get(retired.query_id) is None
+        assert harness.repository().get(healthy.query_id) == before
+        assert (
+            retired.query_id
+            not in _tool(harness.agent, "list_drasi_subscriptions")
+            .run()
+            .content[0]
+            .text
+        )
+
+        calls = len(harness.server.calls)
+        assert not cleanup.run().isError
+        assert len(harness.server.calls) == calls
+
+
+@pytest.mark.parametrize(
+    ("error_code", "pending_status"),
+    (
+        ("state_unavailable", "pending_unsubscribe"),
+        ("incarnation_conflict", "unavailable"),
+    ),
+)
+@pytest.mark.asyncio
+async def test_retired_cleanup_preserves_intent_after_router_failure(
+    harness: _Harness,
+    intent_document: IntentDocument,
+    empty_catalog: ListQueriesResponse,
+    error_code: str,
+    pending_status: SubscriptionStatus,
+) -> None:
+    harness.repository().initialize(intent_document)
+    harness.server.catalog = to_wire(empty_catalog)
+    retired = intent_document.intents["service-errors"]
+    async with harness.lifecycle():
+        cleanup = _tool(harness.agent, "unsubscribe_service-errors_")
+        harness.server.queue("unsubscribe", _error(error_code))
+        result = cleanup.run()
+        assert result.isError
+        retained = harness.repository().get(retired.query_id)
+        assert retained is not None and retained.status == pending_status
+        assert retained.incarnation == retired.incarnation
+        assert retained.last_outcome is not None
+        assert retained.last_outcome.error_category == error_code
+        assert harness.repository().get("rollout-status") is not None
+
+        harness.server.queue(
+            "unsubscribe", _success({"query_id": retired.query_id, "removed": False})
+        )
+        assert not cleanup.run().isError
+        assert harness.repository().get(retired.query_id) is None
+        assert harness.server.calls[-1]["arguments"]["subscription_incarnation"] == (
+            retired.incarnation
+        )
 
 
 @pytest.mark.parametrize(
@@ -843,6 +953,34 @@ async def test_collision_fails_before_intent_mutation_or_hosting(
 
     assert harness.backend.writes == []
     assert harness.runtime.start.call_count == 0
+    assert harness.streams == []
+
+
+@pytest.mark.asyncio
+async def test_retired_cleanup_collision_fails_before_reconciliation(
+    harness: _Harness,
+    intent_document: IntentDocument,
+    empty_catalog: ListQueriesResponse,
+) -> None:
+    harness.repository().initialize(intent_document)
+    writes = len(harness.backend.writes)
+    harness.server.catalog = to_wire(empty_catalog)
+    harness.agent.tool_executor.register_tool(
+        AgentTool(
+            name=_tool_name("unsubscribe", "service-errors"),
+            description="Conflicting author tool.",
+            func=lambda: None,
+        )
+    )
+    with pytest.raises(ValueError, match="conflicts with an existing tool"):
+        async with harness.lifecycle():
+            pytest.fail("Lifecycle ignored the retired cleanup tool collision.")
+
+    snapshot = harness.repository().load()
+    assert snapshot is not None and snapshot.document == intent_document
+    assert len(harness.backend.writes) == writes
+    assert [call["name"] for call in harness.server.calls] == ["list_queries"]
+    harness.runtime.start.assert_not_called()
     assert harness.streams == []
 
 
