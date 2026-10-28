@@ -458,9 +458,19 @@ class AgentRegistryConfig:
 
 @dataclass
 class AgentMemoryConfig:
-    """Configuration wrapper for agent memory selection."""
+    """Configuration wrapper for agent memory selection.
+
+    Attributes:
+        store: Conversation memory backend.
+        summarize_on_completion: When True (the default), every agent run ends
+            with a ``summarize`` activity: one extra LLM call that sends the
+            whole conversation plus the tool history and appends the resulting
+            summary to ``store``. Set to False to skip that call while keeping
+            memory configured, e.g. when nothing reads the summary back.
+    """
 
     store: MemoryBase = field(default_factory=ConversationListMemory)
+    summarize_on_completion: bool = True
 
 
 @dataclass
