@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel
 
 from dapr_agents.storage.daprstores.stateservice import (
+    InvalidStateError,
     StateStoreError,
     StateStoreService,
     _deep_merge,
@@ -194,6 +195,42 @@ def test_load_with_etag_returns_none_for_missing_key():
     payload, etag = service.load_with_etag(key="k", default={})
     assert payload == {}
     assert etag is None
+
+
+@pytest.mark.parametrize("method", ["load", "load_with_etag"])
+def test_invalid_state_when_state_is_not_a_dict(method):
+    service, store = _make_service()
+    store.get_state.return_value = _state_response([1, 2])
+    with pytest.raises(InvalidStateError):
+        getattr(service, method)(key="k")
+
+
+@pytest.mark.parametrize("method", ["load", "load_with_etag"])
+def test_invalid_state_when_state_is_not_valid_json(method):
+    service, store = _make_service()
+    response = _state_response({"count": 1})
+    response.json.side_effect = ValueError("not json")
+    store.get_state.return_value = response
+    with pytest.raises(InvalidStateError):
+        getattr(service, method)(key="k")
+
+
+@pytest.mark.parametrize("method", ["load", "load_with_etag"])
+def test_invalid_state_when_model_validation_fails(method):
+    service, store = _make_service(model=Widget)
+    store.get_state.return_value = _state_response({"count": "not-a-number"})
+    with pytest.raises(InvalidStateError):
+        getattr(service, method)(key="k")
+
+
+@pytest.mark.parametrize("method", ["load", "load_with_etag"])
+def test_backend_errors_are_not_invalid_state(method):
+    """A failing store read is retryable, so it must stay a plain StateStoreError."""
+    service, store = _make_service()
+    store.get_state.side_effect = RuntimeError("boom")
+    with pytest.raises(StateStoreError) as excinfo:
+        getattr(service, method)(key="k")
+    assert not isinstance(excinfo.value, InvalidStateError)
 
 
 def test_load_many_strips_prefix_and_skips_empty_items():
