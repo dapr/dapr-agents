@@ -21,15 +21,13 @@ dynamic = ["version"]
 description = "Agentic Workflows Made Simple"
 keywords = ["dapr", "agents", "workflows"]
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.15"
 license = {file = "LICENSE"}
 authors = [
     {name = "Dapr Authors", email = "dapr@dapr.io"}
 ]
 dependencies = [
-    "dapr>=1.18.0rc0,<1.19.0",
-    "dapr-ext-fastapi>=1.18.0rc0,<1.19.0",
-    "dapr-ext-workflow>=1.18.0rc0,<1.19.0",
+    "dapr[fastapi,workflow]>=1.19.0rc4,<1.20.0",
     "pydantic>=2.11.3,<3.0.0",
     "jinja2>=3.1.0,<4.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -80,6 +78,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [project.optional-dependencies]
@@ -135,16 +134,21 @@ exclude-newer = "7 days"
 [tool.uv.exclude-newer-package]
 # Explicit UTC timestamps — bare dates would otherwise be evaluated in the
 # local timezone, producing different timestamps on developer machines vs. CI.
-dapr = "2026-05-21T00:00:00Z"
-dapr-ext-fastapi = "2026-05-21T00:00:00Z"
-dapr-ext-workflow = "2026-05-21T00:00:00Z"
-durabletask-dapr = "2026-05-21T00:00:00Z"
+dapr = "2026-10-22T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
 # claude-agent-sdk 0.2.159 (the minimum the claude extra needs) is newer than
 # the 7-day cooldown. This fixed date admits nothing released after it; drop
 # the override once 0.2.159 is older than 7 days (after 2026-09-30) so the
 # package falls back under the repo-wide cooldown.
 claude-agent-sdk = "2026-09-24T00:00:00Z"
+# Admit the published router contract only; remove after 2026-10-17T00:40:00Z,
+# when 0.1.0a1 is older than the repository's seven-day cooldown.
+drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
+# pypdf 6.21.2 and nltk 3.10.4 fix high-severity advisories but are newer than
+# the cooldown. Remove both after 2026-10-29T00:00:00Z, when they fall under the
+# repo-wide cooldown.
+pypdf = "2026-10-22T00:00:00Z"
+nltk = "2026-10-22T00:00:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
@@ -207,6 +211,7 @@ members = [
     "examples/10-mcpserver",
     "examples/11-expert-agent-tavily",
     "examples/13-agent-executor-claude",
+    "examples/14-durable-deep-agent",
     "examples/ext-drasi-change-driven-agents-k8s",
     "ext/*",
 ]

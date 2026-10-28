@@ -30,6 +30,9 @@ on:
     types: [checks_requested]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Refuse any implicit re-resolution. Every `uv sync` / `uv run` uses the
 # committed uv.lock as-is; fails loudly if the lockfile is genuinely stale.
 env:
@@ -38,6 +41,8 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Python 3.11
@@ -67,6 +72,8 @@ jobs:
   schema-validation:
     needs: lint
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Python 3.11
@@ -89,6 +96,12 @@ jobs:
       fail-fast: false
       matrix:
         python_ver: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      # Make uv use the matrix interpreter. Without this, uv skips any Python
+      # on PATH that falls outside `requires-python` and quietly uses the
+      # runner's system Python instead.
+      UV_PYTHON: ${{ matrix.python_ver }}
+      EXPECTED_PYTHON: ${{ matrix.python_ver }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Set up Python ${{ matrix.python_ver }}
@@ -102,6 +115,9 @@ jobs:
     - name: Install dependencies
       run: |
         uv sync --frozen --group test --extra drasi --extra claude
+    - name: Verify interpreter matches matrix version
+      run: |
+        uv run python -c "import os, sys; exp = os.environ['EXPECTED_PYTHON']; got = f'{sys.version_info.major}.{sys.version_info.minor}'; print(f'Python {sys.version} at {sys.executable}'); sys.exit(0 if got == exp else f'expected Python {exp}, got {got}')"
     - name: Check typing
       run: |
         uv run mypy --config-file mypy.ini
@@ -116,12 +132,32 @@ jobs:
       run: |
         uv run pytest ext -m "not integration"
 
-  package:
+  # google-adk caps opentelemetry-api/sdk (currently at <=1.42.1), and projects
+  # that install it next to dapr-agents often pin OTel lower still. uv.lock
+  # pins the latest OTel, so the build job above never sees those versions.
+  # This job runs the unit tests against older OTel stacks so a change that
+  # needs a newer OTel than pyproject's floors fails here instead of in a
+  # downstream install.
+  otel-compat:
     needs: lint
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Install floor: pyproject's semconv>=0.60b1 pins opentelemetry-api==1.39.1.
+          - otel_core: "1.39.1"
+            otel_contrib: "0.60b1"
+          # google-adk 2.11.0 ceiling (opentelemetry-api<=1.42.1, opentelemetry-sdk<=1.42.1).
+          # Bump when a newer google-adk raises its cap.
+          - otel_core: "1.42.1"
+            otel_contrib: "0.63b1"
+    name: otel-compat (OTel ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }})
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        # setuptools-scm needs tags; a shallow clone yields 0.0.0.dev and
+        # fails the drasi ext's dapr-agents>=1.0.6 check in `uv pip check`.
         fetch-depth: 0
     - name: Set up Python 3.11
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -132,14 +168,147 @@ jobs:
       with:
         version: "latest"
     - name: Install dependencies
-      run: uv sync --frozen --group test
+      run: uv sync --frozen --group test --extra drasi
+    - name: Pin OpenTelemetry to ${{ matrix.otel_core }} / ${{ matrix.otel_contrib }}
+      env:
+        OTEL_CORE: ${{ matrix.otel_core }}
+        OTEL_CONTRIB: ${{ matrix.otel_contrib }}
+      run: |
+        uv pip install \
+          "opentelemetry-api==$OTEL_CORE" \
+          "opentelemetry-sdk==$OTEL_CORE" \
+          "opentelemetry-proto==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-common==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-grpc==$OTEL_CORE" \
+          "opentelemetry-exporter-otlp-proto-http==$OTEL_CORE" \
+          "opentelemetry-exporter-zipkin-json==$OTEL_CORE" \
+          "opentelemetry-semantic-conventions==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-grpc==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-httpx==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-logging==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-redis==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-requests==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-sqlalchemy==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-threading==$OTEL_CONTRIB" \
+          "opentelemetry-instrumentation-urllib3==$OTEL_CONTRIB" \
+          "opentelemetry-util-http==$OTEL_CONTRIB"
+        # Fail if any package left out of the list above conflicts with the pins.
+        uv pip check
+    # Every `uv run` below uses --no-sync: a plain `uv run` re-syncs the venv
+    # to uv.lock and silently puts the latest OTel back.
+    - name: Show installed OpenTelemetry versions
+      run: |
+        uv run --no-sync python -c "import importlib.metadata as m; [print(p, m.version(p)) for p in ('opentelemetry-sdk', 'opentelemetry-semantic-conventions')]"
+        uv pip list | grep -i '^opentelemetry'
+    - name: Run tests
+      run: |
+        uv run --no-sync pytest tests -m "not integration"
+    # Own session, as in the build job: both suites have a tests/conftest.py,
+    # and pytest refuses to register the second under the same module name.
+    - name: Run Drasi extension tests
+      env:
+        DAPR_AGENTS_REQUIRE_DRASI: "1"
+      run: |
+        uv run --no-sync pytest ext -m "not integration"
+
+  package:
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+    - name: Fetch upstream release tags for forks
+      if: github.event.repository.fork
+      run: git fetch --no-recurse-submodules https://github.com/dapr/dapr-agents.git '+refs/tags/*:refs/tags/*'
+    - name: Set up Python 3.11
+      id: python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.11"
+    - name: Install uv
+      uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+      with:
+        version: "latest"
     - name: Build packages
       run: |
         uv build --wheel --out-dir dist/core
         uv build --package dapr-agents-ext-drasi --wheel --out-dir dist/drasi
-    - name: Verify Drasi extension wheel
+    - name: Verify wheels in a clean environment
+      shell: bash
+      env:
+        PACKAGE_PYTHON: ${{ steps.python.outputs.python-path }}
       run: |
-        uv pip install --target .wheel-test --no-deps dist/core/*.whl dist/drasi/*.whl
-        cd /tmp
-        PYTHONPATH="$GITHUB_WORKSPACE/.wheel-test" "$GITHUB_WORKSPACE/.venv/bin/python" \
-          -c "from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger"
+        set -euo pipefail
+        SECONDS=0
+        wheel_test_dir=$(mktemp -d)
+        trap 'status=$?; rm -rf -- "$wheel_test_dir"; echo "Wheel verification took ${SECONDS}s (exit ${status})"; exit "$status"' EXIT
+
+        shopt -s nullglob
+        core_wheels=("$GITHUB_WORKSPACE"/dist/core/*.whl)
+        drasi_wheels=("$GITHUB_WORKSPACE"/dist/drasi/*.whl)
+        if (( ${#core_wheels[@]} != 1 || ${#drasi_wheels[@]} != 1 )); then
+          echo "::error::Expected exactly one core wheel and one Drasi wheel"
+          exit 1
+        fi
+
+        cd "$wheel_test_dir"
+        uv venv --no-config --no-project --no-python-downloads \
+          --python "$PACKAGE_PYTHON" "$wheel_test_dir/venv"
+        wheel_python="$wheel_test_dir/venv/bin/python"
+
+        for stage in core drasi; do
+          echo "Verifying ${stage} installation"
+          wheels=("${core_wheels[0]}")
+          if [[ "$stage" == drasi ]]; then
+            wheels+=("${drasi_wheels[0]}")
+          fi
+          uv pip install --no-config --python "$wheel_python" "${wheels[@]}"
+          uv pip check --no-config --python "$wheel_python"
+          "$wheel_python" -I - "$stage" "${wheels[@]}" <<'PY'
+        import sys
+        from email.parser import BytesParser
+        from importlib.metadata import distributions, version
+        from pathlib import Path
+        from zipfile import ZipFile
+
+        import dapr_agents
+        from dapr_agents import AgentRunner, DurableAgent, tool
+
+        modules = [dapr_agents]
+        if sys.argv[1] == "drasi":
+            import dapr_agents.ext.drasi as drasi
+            from dapr_agents.ext.drasi import DrasiChangeEvent, DrasiOperation, drasi_trigger
+
+            modules.append(drasi)
+        else:
+            assert "dapr-agents-ext-drasi" not in {
+                dist.metadata["Name"] for dist in distributions()
+            }, "Core-only installation unexpectedly includes Drasi"
+
+        for wheel in sys.argv[2:]:
+            with ZipFile(wheel) as archive:
+                metadata_files = [
+                    name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+                ]
+                assert len(metadata_files) == 1, f"Expected one METADATA file in {wheel}"
+                metadata = BytesParser().parsebytes(archive.read(metadata_files[0]))
+            name, expected_version = metadata["Name"], metadata["Version"]
+            installed_version = version(name)
+            assert installed_version == expected_version, (
+                f"{name}: installed {installed_version}, wheel has {expected_version}"
+            )
+            print(f"Verified {name}=={installed_version}")
+
+        for module in modules:
+            location = Path(module.__file__).resolve()
+            assert location.is_relative_to(Path(sys.prefix).resolve()), (
+                f"{module.__name__} imported from outside the clean environment: {location}"
+            )
+            print(f"Imported {module.__name__} from {location}")
+        PY
+        done
