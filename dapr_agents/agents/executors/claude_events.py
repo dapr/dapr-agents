@@ -113,10 +113,14 @@ class ClaudeEventMapper:
             ``tool_use_id`` (from ``ToolGate``), if any.
         include_text_deltas: Emit ``text_delta`` events.
         prior_cost_usd: Session cost before this run, used to report the
-            per-run cost delta (``total_cost_usd`` is session-cumulative).
-            It is read from the session store transcript; without a store
-            it is ``None`` and a resumed run's ``cost_usd`` is the session
-            total.
+            per-run cost when the CLI's ``total_cost_usd`` is
+            session-cumulative. Read from the session store transcript.
+            Without a store it is ``None``.
+        cli_total_includes_prior: Whether ``total_cost_usd`` already includes
+            ``prior_cost_usd``. ``True`` for a local-disk resume that kept the
+            CLI counter. ``False`` for a ``SessionStore`` materialization into
+            a temporary config directory (#900), where the total is this run
+            alone, or when no prior baseline is available.
     """
 
     def __init__(
@@ -127,6 +131,7 @@ class ClaudeEventMapper:
         approval_for: ApprovalLookup,
         include_text_deltas: bool,
         prior_cost_usd: Optional[float] = None,
+        cli_total_includes_prior: bool = False,
         tool_names: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.session_id = session_id
@@ -134,6 +139,7 @@ class ClaudeEventMapper:
         self._approval_for = approval_for
         self._include_text_deltas = include_text_deltas
         self._prior_cost = prior_cost_usd
+        self._cli_total_includes_prior = cli_total_includes_prior
         self._tool_names: Dict[str, str] = dict(tool_names or {})
         self._last_text: Optional[str] = None
         self.terminal: Optional[AgentEvent] = None
@@ -253,13 +259,27 @@ class ClaudeEventMapper:
     def _usage_metadata(self, message: ResultMessage) -> Dict[str, Any]:
         total = message.total_cost_usd
         cost = None
+        session_total = None
         if total is not None:
-            cost = max(total - (self._prior_cost or 0.0), 0.0)
+            prior = self._prior_cost or 0.0
+
+            if prior <= 0.0:
+                # No prior cost: this run's total is also the session total.
+                cost = total
+                session_total = total
+            elif self._cli_total_includes_prior:
+                # CLI counter is cumulative.
+                cost = max(total - prior, 0.0)
+                session_total = total
+            else:
+                # CLI total represents this run alone.
+                cost = total
+                session_total = prior + total
         return {
             "usage": message.usage or {},
             "model_usage": message.model_usage or {},
             "cost_usd": cost,
-            "session_total_cost_usd": total,
+            "session_total_cost_usd": session_total,
             "num_turns": message.num_turns,
             "duration_ms": message.duration_ms,
             "stop_reason": message.stop_reason,
