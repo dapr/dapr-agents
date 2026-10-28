@@ -12,7 +12,9 @@
 #
 
 import asyncio
+import hashlib
 import inspect
+import json
 import logging
 import signal
 from dataclasses import asdict, is_dataclass
@@ -241,6 +243,35 @@ def trigger_agent(
 def is_valid_routable_model(obj: Any) -> bool:
     """Check if a model class can be used for routed messages."""
     return is_dataclass(obj) or is_pydantic_model(obj)
+
+
+def named_noop_handler(name: str) -> Callable[..., None]:
+    """Return a no-op callable whose ``__name__`` is ``name``.
+
+    Used where a binding needs a named handler (for the registered workflow name
+    or a route name) that is never called.
+    """
+
+    def _noop(*_: Any) -> None:
+        return None
+
+    _noop.__name__ = name
+    return _noop
+
+
+def stable_json_sha256(value: Any) -> str:
+    """SHA-256 hex digest of ``value`` as canonical JSON, the same in every process.
+
+    Canonical JSON: sorted keys, no whitespace, non-ASCII kept as UTF-8. A value
+    that is not JSON-serializable falls back to ``str(value)``.
+    """
+    try:
+        text = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+    except (TypeError, ValueError, RecursionError):
+        text = str(value)
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def get_decorated_methods(instance: Any, attribute_name: str) -> Dict[str, Callable]:
