@@ -118,11 +118,9 @@ class ClaudeEventMapper:
             Without a store it is ``None``.
         cli_total_includes_prior: Whether ``total_cost_usd`` already includes
             ``prior_cost_usd``. ``True`` for a local-disk resume that kept the
-            CLI cost counter; ``False`` for a ``SessionStore`` materialize into
-            a fresh config dir (issue #900), where the CLI total is this run
-            alone. When ``None``, infer from ``total`` vs ``prior`` (``total <
-            prior`` means excluded); that inference cannot detect an expensive
-            per-run total that is still ``>= prior``.
+            CLI counter. ``False`` for a ``SessionStore`` materialization into
+            a temporary config directory (#900), where the total is this run
+            alone, or when no prior baseline is available.
     """
 
     def __init__(
@@ -133,7 +131,7 @@ class ClaudeEventMapper:
         approval_for: ApprovalLookup,
         include_text_deltas: bool,
         prior_cost_usd: Optional[float] = None,
-        cli_total_includes_prior: Optional[bool] = None,
+        cli_total_includes_prior: bool = False,
         tool_names: Optional[Mapping[str, str]] = None,
     ) -> None:
         self.session_id = session_id
@@ -261,22 +259,22 @@ class ClaudeEventMapper:
     def _usage_metadata(self, message: ResultMessage) -> Dict[str, Any]:
         total = message.total_cost_usd
         cost = None
-        session_total = total
+        session_total = None
         if total is not None:
             prior = self._prior_cost or 0.0
-            includes_prior = self._cli_total_includes_prior
-            if includes_prior is None and prior > 0.0:
-                # total < prior is definitive (CLI excluded prior). total >=
-                # prior is ambiguous (cumulative vs expensive per-run) — prefer
-                # the cumulative reading only when the caller did not say.
-                includes_prior = total >= prior
-            if includes_prior and prior > 0.0:
+
+            if prior <= 0.0:
+                # No prior cost: this run's total is also the session total.
+                cost = total
+                session_total = total
+            elif self._cli_total_includes_prior:
+                # CLI counter is cumulative.
                 cost = max(total - prior, 0.0)
                 session_total = total
             else:
-                # Per-run CLI total (SessionStore materialize / #900).
+                # CLI total represents this run alone.
                 cost = total
-                session_total = prior + total if prior > 0.0 else total
+                session_total = prior + total
         return {
             "usage": message.usage or {},
             "model_usage": message.model_usage or {},
