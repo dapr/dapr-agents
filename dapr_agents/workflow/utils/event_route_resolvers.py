@@ -39,6 +39,11 @@ if TYPE_CHECKING:
 # characters (not bytes).
 MAX_EVENT_IDENTIFIER_LENGTH = 512
 
+# Deepest nesting of lists / dicts accepted in an event payload. Checked
+# explicitly because Python 3.14+ no longer raises RecursionError from
+# ``json.dumps`` at depths older versions rejected.
+MAX_EVENT_DATA_DEPTH = 500
+
 # Event names the SDK itself waits on, case-folded because the durabletask
 # worker matches event names with ``str.casefold()``.
 RESERVED_EVENT_NAME_PREFIXES: tuple[str, ...] = (
@@ -190,6 +195,7 @@ def serialize_event_data(
         result = resolve_field(resolver, message, msg_ctx, field="data")
     try:
         result = _to_json_value(result)
+        _check_depth(result)
         encoded = json.dumps(result)
     except Exception as exc:
         raise EventRouteResolutionError(
@@ -201,6 +207,22 @@ def serialize_event_data(
             "data", f"serialized payload is {size} bytes (limit {max_bytes})"
         )
     return result
+
+
+def _check_depth(value: Any) -> None:
+    """Raise ValueError if ``value`` nests deeper than MAX_EVENT_DATA_DEPTH."""
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, Mapping):
+            children = node.values()
+        elif isinstance(node, (list, tuple)):
+            children = node
+        else:
+            continue
+        if depth >= MAX_EVENT_DATA_DEPTH:
+            raise ValueError(f"nested deeper than {MAX_EVENT_DATA_DEPTH} levels")
+        stack.extend((child, depth + 1) for child in children)
 
 
 def _to_json_value(value: Any) -> Any:
