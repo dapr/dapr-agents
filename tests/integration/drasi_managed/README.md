@@ -63,6 +63,7 @@ Compose is invoked with an empty environment file and an allowlisted CLI/daemon 
 | Built-in router and Reaction SDK | Drasi Platform revision `7e3f4f2aec6574ba1f487d910315e4265670ddc8` |
 | Shared Python contract | PyPI `drasi-agent-router-contracts==0.1.0a1` |
 | Agent SDK and dependencies | Workspace `uv.lock` resolved by `uv sync`, installed with `--frozen` in the image |
+| Agent Dapr/workflow SDK | Bundled in `dapr==1.19.0rc4`; recorded as the `dapr` package version |
 | Agent container Python / uv | `3.12.12` / `0.11.27` |
 
 The router image is built directly from the Platform's own Dockerfile and Reaction SDK at the same pinned public Git revision. Docker/Buildx fetches both contexts; no local Platform checkout is needed. There is no copied router or local replacement protocol.

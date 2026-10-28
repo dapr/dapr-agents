@@ -945,17 +945,37 @@ class _NativeStream:
         return True
 
 
-def test_shutdown_closes_the_sdk_stream_reopened_during_an_inflight_reconnect(
+@pytest.mark.parametrize("shutdown_stage", ("sidecar_wait", "stream_open"))
+def test_shutdown_closes_any_sdk_stream_opened_during_an_inflight_reconnect(
     config: ResolvedDrasiConfig,
     admission: Mock,
     client: MagicMock,
     workflow: MagicMock,
     mocker: MockerFixture,
+    shutdown_stage: str,
 ) -> None:
     original_stream = _NativeStream()
     replacement_stream = _NativeStream()
+    opened_streams: list[_NativeStream] = []
+    reconnect_waiting = Event()
+    allow_reconnect = Event()
+
+    def wait_for_reconnect() -> None:
+        reconnect_waiting.set()
+        assert allow_reconnect.wait(timeout=5)
+
+    def open_stream(requests: object) -> _NativeStream:
+        del requests
+        if not opened_streams:
+            opened_streams.append(original_stream)
+            return original_stream
+        if shutdown_stage == "stream_open":
+            wait_for_reconnect()
+        opened_streams.append(replacement_stream)
+        return replacement_stream
+
     stub = mocker.Mock()
-    stub.SubscribeTopicEventsAlpha1.side_effect = (original_stream, replacement_stream)
+    stub.SubscribeTopicEventsAlpha1.side_effect = open_stream
     subscription = Subscription(
         stub,
         config.pubsub_name,
@@ -964,12 +984,10 @@ def test_shutdown_closes_the_sdk_stream_reopened_during_an_inflight_reconnect(
     )
     subscription.start()
     client.subscribe.return_value = subscription
-    reconnect_waiting = Event()
-    allow_reconnect = Event()
 
     def wait_for_sidecar() -> None:
-        reconnect_waiting.set()
-        assert allow_reconnect.wait(timeout=5)
+        if shutdown_stage == "sidecar_wait":
+            wait_for_reconnect()
 
     mocker.patch(
         "dapr.clients.grpc.subscription.DaprHealth.wait_for_sidecar",
@@ -993,7 +1011,11 @@ def test_shutdown_closes_the_sdk_stream_reopened_during_an_inflight_reconnect(
         original_stream.messages.put(_RpcFailure(StatusCode.UNAVAILABLE))
         assert reconnect_waiting.wait(timeout=5)
         close()
-        assert replacement_stream.cancelled
+        assert all(stream.cancelled for stream in opened_streams)
+        if shutdown_stage == "stream_open":
+            assert opened_streams == [original_stream, replacement_stream]
+        assert close.is_stopped
+        assert close.is_closed
         assert not subscription._is_stream_active()
         admission.admit.assert_not_called()
         workflow.schedule_new_workflow.assert_not_called()
@@ -1098,8 +1120,10 @@ def test_native_sdk_inactive_response_failure_surfaces_on_the_next_read(
     threads[0].join(timeout=5)
 
     assert not threads[0].is_alive()
-    assert subscription._send_queue.empty()
-    assert "Can't send message on inactive stream" in caplog.text
+    # Newer SDKs enqueue shutdown sentinels, but must not enqueue an acknowledgement.
+    while not subscription._send_queue.empty():
+        assert subscription._send_queue.get_nowait() is None
+    workflow.schedule_new_workflow.assert_called_once()
     close()
     assert "Drasi inbox stream stopped" in caplog.text
     assert native_stream.cancelled

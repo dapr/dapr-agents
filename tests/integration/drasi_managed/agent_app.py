@@ -311,7 +311,6 @@ def ready() -> dict[str, Any]:
             name: version(name)
             for name in (
                 "dapr",
-                "dapr-ext-workflow",
                 "dapr-agents",
                 "dapr-agents-ext-drasi",
                 "drasi-agent-router-contracts",
