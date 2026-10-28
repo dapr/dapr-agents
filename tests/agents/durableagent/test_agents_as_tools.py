@@ -172,7 +172,8 @@ class TestRegisterWorkflowsNaming:
         frodo = _make_agent("frodo", mock_llm)
         rt = self._register_and_get_calls(frodo)
         registered_names = [
-            call.args[0].__name__ for call in rt.register_workflow.call_args_list
+            call.kwargs["name"]
+            for call in rt.register_versioned_workflow.call_args_list
         ]
         assert agent_workflow_id("frodo") in registered_names
 
@@ -189,7 +190,8 @@ class TestRegisterWorkflowsNaming:
         )
         rt = self._register_and_get_calls(sam)
         registered_names = [
-            call.args[0].__name__ for call in rt.register_workflow.call_args_list
+            call.kwargs["name"]
+            for call in rt.register_versioned_workflow.call_args_list
         ]
         assert broadcast_workflow_id("sam") in registered_names
 
@@ -197,7 +199,8 @@ class TestRegisterWorkflowsNaming:
         sam = _make_agent("sam", mock_llm)
         rt = self._register_and_get_calls(sam)
         registered_names = [
-            call.args[0].__name__ for call in rt.register_workflow.call_args_list
+            call.kwargs["name"]
+            for call in rt.register_versioned_workflow.call_args_list
         ]
         assert broadcast_workflow_id("sam") not in registered_names
 
@@ -275,7 +278,8 @@ class TestRegisterWorkflowsNaming:
         sam.register_workflows(rt)
 
         all_names = [
-            call.args[0].__name__ for call in rt.register_workflow.call_args_list
+            call.kwargs["name"]
+            for call in rt.register_versioned_workflow.call_args_list
         ]
         assert agent_workflow_id("frodo") in all_names
         assert agent_workflow_id("sam") in all_names
