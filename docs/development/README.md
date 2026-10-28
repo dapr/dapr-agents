@@ -61,25 +61,23 @@ uv sync --editable
 Sometimes you need to work with local changes from other Dapr repositories.
 
 ### Using Local Python Dapr Package Changes
-If you need to work with additional Python Dapr packages during local development,
-for example, those from [python-sdk](https://github.com/dapr/python-sdk) or [durabletask-python](https://github.com/dapr/durabletask-python),
-then you can follow the same steps above and then install your local versions.
-Adjust the paths as needed for your setup.
+If you need to work with local changes to the [python-sdk](https://github.com/dapr/python-sdk),
+follow the same steps above and then install your local version.
+Since 1.19 the workflow and FastAPI extensions ship inside the core `dapr` package as extras,
+and the durabletask client is vendored under `dapr/ext/workflow/_durabletask`, so one editable install covers all of them.
+Adjust the path as needed for your setup.
 
 ```bash
-uv pip install -e ../durabletask-python \
-   -e ../python-sdk \
-   -e ../python-sdk/ext/dapr-ext-fastapi \
-   -e ../python-sdk/ext/dapr-ext-workflow
+uv pip install -e "../python-sdk[fastapi,workflow]"
 ```
 
 You can also update `pyproject.toml` file to point to your local repo instead. For example, instead of:
 ```
-"durabletask-dapr=>0.2.0a15",
+"dapr[fastapi,workflow]>=1.19.0rc4,<1.20.0",
 ```
 You can use:
 ```
-"durabletask-dapr @ file:///Users/samcoyle/go/src/github.com/durabletask-python",
+"dapr[fastapi,workflow] @ file:///path/to/python-sdk",
 ```
 
 ### Using Local Dapr Runtime Changes
@@ -420,6 +418,49 @@ Mental model:
 - Think “config vs data”:
   - Config you wire at construction time → dataclasses.
   - Data the system processes/persists at runtime → Pydantic.
+
+### Changing workflow code
+A workflow is replayed from its history every time it makes progress, and an instance can live
+across upgrades (an approval can wait for days). If a change makes the code schedule different
+activities, timers or child workflows, or schedule them in a different order, runs that started
+on the old code fail to replay after the upgrade.
+
+The agents' workflows (`agent_workflow`, `orchestration_workflow`, `on_broadcast`) are
+registered as named versions in `DurableAgent.register_workflows`. Each instance replays on the
+version it started on; new instances run the latest. Instances started before versioning was
+introduced carry no version and run the latest one. Versioning needs Dapr runtime 1.17 or later;
+older runtimes do not record the version, so every instance runs the latest.
+
+- **Small change: a patch.** Branch on a unique id. New instances take the new path, replaying
+  instances that never saw the patch take the old one:
+
+  ```python
+  if ctx.is_patched("skip-initial-entry"):
+      ...  # new code
+  else:
+      ...  # the code as it was
+  ```
+
+  Never reuse an id, and never remove, rename or reorder a patch while instances that may have
+  evaluated it can still run.
+- **Larger change: a new version.** Add the new body as its own method, without the
+  original's decorators. The runner and the pub/sub routes start the workflow by name, so new
+  runs get the latest version; a second `@workflow_entry` breaks the runner's entry lookup, and
+  a second `@message_router` adds a duplicate subscription. Append it to the versions in
+  `register_workflows`, for example
+  `(("v1", self.agent_workflow), ("v2", self.agent_workflow_v2))`. Keep v1, and the activity
+  behaviour it relies on, until its instances are gone. Instances started before versioning was
+  introduced carry no version, so they would replay on v2: use a patch until they have finished.
+- **Activities are not versioned.** Replay checks an activity's name and position, not its
+  input, and an activity scheduled by old code that runs after an upgrade receives the old
+  input. Change inputs additively (new optional fields), and keep a removed activity registered
+  while old instances may still schedule it.
+- **Removing a version or a patch.** Only once `dapr workflow list` shows no instance started
+  before it. During a rolling upgrade, a new instance can stall on a replica that still runs the
+  old code; it continues once the rollout finishes.
+
+See [Workflow versioning](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-versioning/)
+in the Dapr docs.
 
 
 ### Using the env-template resolver

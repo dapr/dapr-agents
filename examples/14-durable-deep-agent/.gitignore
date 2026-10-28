@@ -1,0 +1,4 @@
+*.db
+*.db-shm
+*.db-wal
+.dapr-data/
