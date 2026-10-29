@@ -13,7 +13,7 @@ limitations under the License.
 
 # Dapr Agents: A Framework for Agentic AI Systems
 
-![](./docs/img/dapr-agents-blue.png)
+![](https://github.com/dapr/dapr-agents/blob/main/docs/img/dapr-agents-blue.png)
 
 [![PyPI - Version](https://img.shields.io/pypi/v/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Latest%20version)](https://pypi.org/project/dapr-agents/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/dapr-agents?style=flat&logo=pypi&logoColor=white&label=Downloads)](https://pypi.org/project/dapr-agents/)
@@ -25,7 +25,7 @@ limitations under the License.
 
 Dapr Agents is a developer framework designed to build production-grade resilient AI agent systems that operate at scale. Built on top of the battle-tested Dapr project, it enables software developers to create AI agents that reason, act, and collaborate using Large Language Models (LLMs), while leveraging built-in observability and stateful workflow execution to guarantee agentic workflows complete successfully, no matter how complex.
 
-![](./docs/img/dapr-agents-pubsub-workflow.png)
+![](https://github.com/dapr/dapr-agents/blob/main/docs/img/dapr-agents-pubsub-workflow.png)
 
 ## Key Features
 
@@ -136,7 +136,7 @@ See the MCPServer example under `examples/` for an end-to-end demo across all th
 
 Please refer to our [Dapr Community Code of Conduct](https://github.com/dapr/community/blob/master/CODE-OF-CONDUCT.md)
 
-For development setup and guidelines, see our [Development Guide](docs/development/README.md).
+For development setup and guidelines, see our [Development Guide](https://github.com/dapr/dapr-agents/blob/main/docs/development/README.md).
 
 **Quick start for contributors:**
 1. Install dependencies: `uv sync --group dev --group test`
@@ -162,13 +162,13 @@ uv add dapr-agents
 
 ### Run The Quickstarts
 
-For a high level introduction to the fundamentals of Dapr Agents, see our [quickstarts](./quickstarts/README.md).
+For a high level introduction to the fundamentals of Dapr Agents, see our [quickstarts](https://github.com/dapr/dapr-agents/blob/main/quickstarts/README.md).
 
 ### Run The Examples
 
-Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](./examples/README.md).
+Once you've gotten a feel for the fundamentals of the project in the quickstarts, then dive deeper with the [examples](https://github.com/dapr/dapr-agents/blob/main/examples/README.md).
 
-See the [durable deep agent](./examples/14-durable-deep-agent) example for a long-running research task that survives a crash and resumes.
+See the [durable deep agent](https://github.com/dapr/dapr-agents/blob/main/examples/14-durable-deep-agent) example for a long-running research task that survives a crash and resumes.
 
 ## Get Involved
 
