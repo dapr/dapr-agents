@@ -144,6 +144,11 @@ claude-agent-sdk = "2026-09-24T00:00:00Z"
 # Admit the published router contract only; remove after 2026-10-17T00:40:00Z,
 # when 0.1.0a1 is older than the repository's seven-day cooldown.
 drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
+# pypdf 6.21.2 and nltk 3.10.4 fix high-severity advisories but are newer than
+# the cooldown. Remove both after 2026-10-29T00:00:00Z, when they fall under the
+# repo-wide cooldown.
+pypdf = "2026-10-22T00:00:00Z"
+nltk = "2026-10-22T00:00:00Z"
 
 [project.urls]
 Documentation = "https://github.com/dapr/docs"
