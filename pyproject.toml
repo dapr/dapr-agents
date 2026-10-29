@@ -18,8 +18,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dapr-agents"
 dynamic = ["version"]
-description = "Agentic Workflows Made Simple"
-keywords = ["dapr", "agents", "workflows"]
+description = "Durable AI agents and agentic workflows on Dapr: built-in workflow orchestration, state, pub/sub, security and observability"
+keywords = [
+    "dapr",
+    "agents",
+    "workflows",
+    "durable-execution",
+    "durable-workflows",
+    "ai-agents",
+    "llm",
+    "multi-agent",
+    "agentic-workflows",
+    "mcp",
+]
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = {file = "LICENSE"}
@@ -151,8 +162,10 @@ pypdf = "2026-10-22T00:00:00Z"
 nltk = "2026-10-22T00:00:00Z"
 
 [project.urls]
-Documentation = "https://github.com/dapr/docs"
-Source = "https://github.com/dapr/python-sdk"
+Homepage = "https://docs.dapr.io/developing-applications/dapr-agents/"
+Documentation = "https://docs.dapr.io/developing-applications/dapr-agents/"
+Source = "https://github.com/dapr/dapr-agents"
+Issues = "https://github.com/dapr/dapr-agents/issues"
 
 [tool.setuptools.packages.find]
 include = ["dapr_agents", "dapr_agents.*"]
