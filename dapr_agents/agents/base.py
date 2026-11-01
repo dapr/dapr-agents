@@ -394,9 +394,9 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self.configuration = configuration
-        # Track recognized deprecated keys to suppress repeated warnings on config hot-reload.
+        # Track deprecated keys that have already emitted a warning during config hot-reload.
         # Best-effort: concurrent updates may still emit duplicates for the same key.
-        self._seen_deprecated_config_keys: set[str] = set()
+        self._warned_deprecated_config_keys: set[str] = set()
         self._subscription_id: Optional[str] = None
         self.appid = (
             None  # We set the appid to None as standalone agents may not have one
@@ -967,9 +967,9 @@ class AgentBase:
         # and the suppression set remains bounded.
         if (
             not is_supported_config_key(key)
-            and normalized_key not in self._seen_deprecated_config_keys
+            and normalized_key not in self._warned_deprecated_config_keys
         ):
-            self._seen_deprecated_config_keys.add(normalized_key)
+            self._warned_deprecated_config_keys.add(normalized_key)
             logger.warning(
                 f"Agent {self.name}: config key {key!r} uses a deprecated naming convention; "
                 "support may be removed in a future release. Use "
