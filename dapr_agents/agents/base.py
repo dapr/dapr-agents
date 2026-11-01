@@ -394,7 +394,8 @@ class AgentBase:
         self._runtime_secrets: Dict[str, str] = {}
         self._runtime_conf: Dict[str, str] = {}
         self.configuration = configuration
-        # Track deprecated keys that have already emitted a warning during config hot-reload.
+        # Track canonical names of recognized deprecated keys that have already emitted
+        # a warning during config hot-reload.
         # Best-effort: concurrent updates may still emit duplicates for the same key.
         self._warned_deprecated_config_keys: set[str] = set()
         self._subscription_id: Optional[str] = None
