@@ -154,8 +154,8 @@ class TestApplyConfigUpdate:
             if "deprecated naming convention" in record.message
         ]
 
-        # Updates are sequential so each key format should log a warning once
-        assert len(messages) == 3
+        # Equivalent deprecated key formats should log one warning per configuration key.
+        assert len(messages) == 1
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):
         """Passing a non-coercible type (e.g. dict for an int key) should be

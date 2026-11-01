@@ -963,11 +963,13 @@ class AgentBase:
             logger.debug(f"Agent {self.name} ignoring unrecognized config key: {key}")
             return False
 
-        # Track only recognized deprecated keys to keep the warning-suppression set bounded
-        if key not in self._seen_deprecated_config_keys and not is_supported_config_key(
-            key
+        # Track canonical names so equivalent deprecated key formats produce one warning
+        # and the suppression set remains bounded.
+        if (
+            not is_supported_config_key(key)
+            and normalized_key not in self._seen_deprecated_config_keys
         ):
-            self._seen_deprecated_config_keys.add(key)
+            self._seen_deprecated_config_keys.add(normalized_key)
             logger.warning(
                 f"Agent {self.name}: config key {key!r} uses a deprecated naming convention; "
                 "support may be removed in a future release. Use "
