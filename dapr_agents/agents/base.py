@@ -965,7 +965,7 @@ class AgentBase:
             return False
 
         # Track canonical names so equivalent deprecated key formats produce one warning
-        # and the suppression set remains bounded.
+        # and keep the warning-suppression set bounded.
         if (
             not is_supported_config_key(key)
             and normalized_key not in self._warned_deprecated_config_keys
