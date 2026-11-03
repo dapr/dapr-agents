@@ -206,6 +206,9 @@ class SplitterBase(BaseModel, ABC):
         """
         Split text using the fallback regex, retaining separators and unmatched text.
 
+        Matches and unmatched spans are kept intact, even if a segment exceeds
+        chunk_size. This fallback does not hard-split oversized segments.
+
         Args:
             text (str): The input text to split.
 

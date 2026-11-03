@@ -100,13 +100,21 @@ def test_split_regex_fallback_preserves_all_content(monkeypatch, text, expected)
     assert "".join(chunks) == text
 
 
-@pytest.mark.parametrize("pattern", [r"\d+", r"(\d+)", r"(\d)(\d)", r"(?=\d)"])
-def test_split_custom_regex_preserves_unmatched_content(monkeypatch, pattern):
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        (r"\d+", ["prefix12", "middle34", "tail"]),
+        (r"(\d+)", ["prefix12", "middle34", "tail"]),
+        (r"(\d)(\d)", ["prefix12", "middle34", "tail"]),
+        (r"(?=\d)", ["prefix", "1", "2middle", "3", "4tail"]),
+    ],
+)
+def test_split_custom_regex_preserves_unmatched_content(monkeypatch, pattern, expected):
     monkeypatch.setattr(base, "NLTK_AVAILABLE", False)
     splitter = TextSplitter(chunk_size=4, chunk_overlap=0, fallback_regex=pattern)
     text = "prefix12middle34tail"
 
     chunks = splitter.split(text)
 
-    assert all(chunks)
+    assert chunks == expected
     assert "".join(chunks) == text
