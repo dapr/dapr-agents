@@ -205,7 +205,7 @@ def test_mutate_team_index_does_not_retry_invalid_state(caplog):
     assert any(r.levelname == "ERROR" for r in caplog.records)
 
 
-def test_mutate_team_index_does_not_retry_programming_errors():
+def test_mutate_team_index_does_not_retry_programming_errors(caplog):
     """A bug in the mutate callback repeats forever, so it must not be retried."""
     store = FakeEtagStateStore()
     index_key = "agents:default:_index"
@@ -227,6 +227,8 @@ def test_mutate_team_index_does_not_retry_programming_errors():
 
     assert ok is False
     assert mutate_calls["n"] == 1
+    assert not any("Conflict" in r.getMessage() for r in caplog.records)
+    assert any(r.levelname == "ERROR" for r in caplog.records)
 
 
 def test_mutate_team_index_retries_then_succeeds():
