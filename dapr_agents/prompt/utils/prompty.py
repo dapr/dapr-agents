@@ -18,13 +18,9 @@ from dapr_agents.types.message import (
     ToolMessage,
     BaseMessage,
 )
-from dapr_agents.prompt.engine import (
-    TemplateEngine,
-    extract_fstring_variables,
-    extract_jinja_variables,
-)
+from dapr_agents.prompt.engine import TemplateEngine
 from typing import Dict, Any, Tuple, Optional, Union, List, Literal
-from jinja2 import Template, TemplateError
+from jinja2 import TemplateError
 from pathlib import Path
 import yaml
 import re
@@ -303,8 +299,8 @@ class PromptyHelper:
         Render the Prompty content using Jinja2 with the provided inputs.
         """
         try:
-            return TemplateEngine.render(content, "jinja2", **inputs)
-        except Exception as e:
+            return TemplateEngine.render_mapping(content, inputs, "jinja2")
+        except TemplateError as e:
             raise ValueError(f"Template rendering error: {e}")
 
     @staticmethod
@@ -411,7 +407,7 @@ class PromptyHelper:
     @staticmethod
     def extract_placeholders_from_content(
         content: str, template_format: Literal["f-string", "jinja2"] = "jinja2"
-    ) -> Union[List[str], Tuple[List[str], List[str]]]:
+    ) -> List[str]:
         """
         Extract undeclared variables from the content based on the specified template format.
 
@@ -420,7 +416,7 @@ class PromptyHelper:
             template_format (Literal["f-string", "jinja2"]): The format of the template, either "f-string" or "jinja2". Default is "jinja2".
 
         Returns:
-            Union[List[str], Tuple[List[str], List[str]]]:
+            List[str]:
                 - For "f-string" format: A list of variable names.
                 - For "jinja2" format: A list of undeclared variables.
         """

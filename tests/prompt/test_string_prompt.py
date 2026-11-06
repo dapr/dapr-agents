@@ -87,3 +87,17 @@ class TestStringPromptTemplateFormatPrompt:
             "Hello {first} {last}, your email is {email}. Bye {first}!"
         )
         assert template.input_variables == ["first", "last", "email"]
+
+    def test_format_prompt_handles_parameter_name_collisions(self):
+        """Variables named template, template_format, environment, cls, or self format cleanly."""
+        template = StringPromptTemplate.from_template(
+            "{template}|{template_format}|{environment}|{cls}|{self}"
+        )
+        prefilled = template.pre_fill_variables(**{"self": "me"})
+        result = prefilled.format_prompt(
+            template="tpl",
+            template_format="json",
+            environment="prod",
+            cls="Agent",
+        )
+        assert result == "tpl|json|prod|Agent|me"

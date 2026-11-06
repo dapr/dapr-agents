@@ -45,7 +45,9 @@ class StringPromptHelper:
         Returns:
             str: The formatted content.
         """
-        return TemplateEngine.render(content, template_format, **kwargs)
+        return TemplateEngine.render_mapping(
+            content, kwargs, template_format=template_format
+        )
 
     @staticmethod
     def extract_variables(template: str, template_format: str) -> List[str]:

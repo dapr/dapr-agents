@@ -350,3 +350,36 @@ class TestChatPromptTemplateFormatPrompt:
             "question",
             "topic",
         ]
+
+    def test_format_prompt_handles_parameter_name_collisions(self):
+        """Variables named template, template_format, environment, cls, or self render cleanly."""
+        template = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "user",
+                    "{template}|{template_format}|{environment}|{cls}|{self}",
+                )
+            ]
+        )
+        result = template.format_prompt(
+            template="tpl",
+            template_format="json",
+            environment="prod",
+            cls="Agent",
+            **{"self": "me"},
+        )
+        assert result[0]["content"] == "tpl|json|prod|Agent|me"
+
+    def test_none_role_in_dict_raises_value_error(self):
+        """A message dict with role=None raises ValueError rather than AttributeError."""
+        template = ChatPromptTemplate.from_messages(
+            [{"role": None, "content": "hello"}]
+        )
+        with pytest.raises(ValueError):
+            template.format_prompt()
+
+        placeholder_tmpl = ChatPromptTemplate.from_messages(
+            [MessagePlaceHolder(variable_name="history")]
+        )
+        with pytest.raises(ValueError):
+            placeholder_tmpl.format_prompt(history=[{"role": None, "content": "hello"}])

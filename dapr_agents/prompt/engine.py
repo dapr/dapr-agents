@@ -13,13 +13,22 @@
 
 import logging
 from string import Formatter
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
-from jinja2 import Environment, Template, nodes
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Tuple, cast
+from jinja2 import Environment, nodes
 from jinja2.meta import find_undeclared_variables
 
 logger = logging.getLogger(__name__)
 
 TemplateFormat = Literal["f-string", "jinja2"]
+_UNSET: Any = object()
+
+
+def _noop_filter(value: Any, *args: Any, **kwargs: Any) -> Any:
+    return value
+
+
+def _noop_test(value: Any, *args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 def render_fstring(template: str, **kwargs: Any) -> str:
@@ -33,7 +42,7 @@ def render_fstring(template: str, **kwargs: Any) -> str:
     Returns:
         str: The rendered template string with variables replaced.
     """
-    return template.format(**kwargs)
+    return Formatter().vformat(template, (), kwargs)
 
 
 def extract_fstring_variables(template: str) -> List[str]:
@@ -59,7 +68,9 @@ def extract_fstring_variables(template: str) -> List[str]:
 
 
 def render_jinja(
-    template: str, environment: Optional[Environment] = None, **kwargs: Any
+    template: str,
+    environment: Optional[Environment] = cast(Optional[Environment], _UNSET),
+    **kwargs: Any,
 ) -> str:
     """
     Render a Jinja2 template using the provided variables.
@@ -72,8 +83,18 @@ def render_jinja(
     Returns:
         str: The rendered template string.
     """
-    env = environment or Environment()
-    return env.from_string(template).render(**kwargs)
+    if environment is _UNSET:
+        env = Environment()
+    elif isinstance(environment, Environment):
+        env = environment
+    elif environment is None:
+        if "environment" in extract_jinja_variables(template):
+            kwargs = {"environment": None, **kwargs}
+        env = Environment()
+    else:
+        kwargs = {"environment": environment, **kwargs}
+        env = Environment()
+    return env.from_string(template).render(kwargs)
 
 
 def extract_jinja_variables(
@@ -89,17 +110,22 @@ def extract_jinja_variables(
     Returns:
         List[str]: A list of undeclared variable names in the template.
     """
-    env = environment or Environment()
+    if environment is not None:
+        env = environment.overlay()
+        env.filters = dict(environment.filters)
+        env.tests = dict(environment.tests)
+    else:
+        env = Environment()
     parsed_content = env.parse(template)
 
     # Register stubs for any undeclared filters or tests in the template AST
     # so find_undeclared_variables does not fail with TemplateAssertionError.
     for node in parsed_content.find_all(nodes.Filter):
         if node.name not in env.filters:
-            env.filters[node.name] = lambda x, *args, **kwargs: x
+            env.filters[node.name] = _noop_filter
     for node in parsed_content.find_all(nodes.Test):
         if node.name not in env.tests:
-            env.tests[node.name] = lambda x, *args, **kwargs: True
+            env.tests[node.name] = _noop_test
 
     undeclared_variables = find_undeclared_variables(parsed_content)
     return sorted(undeclared_variables)
@@ -128,11 +154,47 @@ class TemplateEngine:
     SUPPORTED_FORMATS: Tuple[str, ...] = ("f-string", "jinja2")
 
     @classmethod
-    def render(
+    def render_mapping(
         cls,
         template: str,
+        variables: Mapping[str, Any],
         template_format: str = "f-string",
         environment: Optional[Environment] = None,
+    ) -> str:
+        """
+        Render a template string from a variable mapping without keyword-argument collisions.
+
+        Args:
+            template (str): The template string to format.
+            variables (Mapping[str, Any]): Mapping of placeholder names to values.
+            template_format (str): The template format ('f-string' or 'jinja2').
+            environment (Optional[Environment]): Optional Jinja2 environment (for jinja2 format).
+
+        Returns:
+            str: The formatted string.
+
+        Raises:
+            ValueError: If the template format is unsupported.
+        """
+        formatter = DEFAULT_FORMATTER_MAPPING.get(template_format)
+        if not formatter:
+            raise ValueError(f"Unsupported template format: {template_format}")
+        if formatter is render_fstring:
+            return Formatter().vformat(template, (), variables)
+        if formatter is render_jinja:
+            env = environment if environment is not None else Environment()
+            return env.from_string(template).render(dict(variables))
+        if template_format == "jinja2" and environment is not None:
+            return formatter(template, environment=environment, **variables)
+        return formatter(template, **variables)
+
+    @classmethod
+    def render(
+        cls,
+        /,
+        template: str,
+        template_format: str = "f-string",
+        environment: Optional[Environment] = cast(Optional[Environment], _UNSET),
         **kwargs: Any,
     ) -> str:
         """
@@ -150,12 +212,26 @@ class TemplateEngine:
         Raises:
             ValueError: If the template format is unsupported.
         """
-        formatter = DEFAULT_FORMATTER_MAPPING.get(template_format)
-        if not formatter:
+        if template_format not in DEFAULT_FORMATTER_MAPPING:
             raise ValueError(f"Unsupported template format: {template_format}")
-        if template_format == "jinja2" and environment is not None:
-            return formatter(template, environment=environment, **kwargs)
-        return formatter(template, **kwargs)
+        resolved_env: Optional[Environment]
+        if environment is _UNSET:
+            resolved_env = None
+        elif isinstance(environment, Environment):
+            resolved_env = environment
+        elif environment is None:
+            if "environment" in cls.extract_variables(template, template_format):
+                kwargs = {"environment": None, **kwargs}
+            resolved_env = None
+        else:
+            kwargs = {"environment": environment, **kwargs}
+            resolved_env = None
+        return cls.render_mapping(
+            template,
+            kwargs,
+            template_format=template_format,
+            environment=resolved_env,
+        )
 
     @classmethod
     def extract_variables(

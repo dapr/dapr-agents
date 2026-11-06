@@ -13,7 +13,7 @@
 
 import logging
 import re
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union, cast
 from pydantic import Field
 
 from dapr_agents.prompt.base import PromptTemplateBase
@@ -68,8 +68,12 @@ class ChatPromptHelper:
         normalized_messages: List[BaseMessage] = []
 
         def validate_and_create_message(
-            role: str, content: Optional[str], message_data: dict
+            role: Any, content: Optional[str], message_data: dict
         ) -> BaseMessage:
+            if not isinstance(role, str):
+                raise ValueError(
+                    f"Unrecognized role '{role}' in message: {message_data}"
+                )
             role = role.strip().lower()
             if role not in cls._ROLE_MAP:
                 raise ValueError(
@@ -88,8 +92,11 @@ class ChatPromptHelper:
                 elif isinstance(item, dict):
                     role = item.get("role", "user")
                     content = item.get("content", "")
-                    if role.strip().lower() == "tool" or (
-                        role.strip().lower() == "assistant" and item.get("tool_calls")
+                    normalized_role = (
+                        role.strip().lower() if isinstance(role, str) else None
+                    )
+                    if normalized_role == "tool" or (
+                        normalized_role == "assistant" and item.get("tool_calls")
                     ):
                         normalized_messages.append(
                             validate_and_create_message(role, content, item)
@@ -105,8 +112,9 @@ class ChatPromptHelper:
         elif isinstance(variable_value, dict):
             role = variable_value.get("role", "user")
             content = variable_value.get("content", "")
-            if role.strip().lower() == "tool" or (
-                role.strip().lower() == "assistant" and variable_value.get("tool_calls")
+            normalized_role = role.strip().lower() if isinstance(role, str) else None
+            if normalized_role == "tool" or (
+                normalized_role == "assistant" and variable_value.get("tool_calls")
             ):
                 normalized_messages.append(
                     validate_and_create_message(role, content, variable_value)
@@ -123,6 +131,7 @@ class ChatPromptHelper:
     @classmethod
     def format_message(
         cls,
+        /,
         message: Union[Tuple[str, str], Dict[str, Any], BaseMessage],
         template_format: str,
         **kwargs: Any,
@@ -164,7 +173,9 @@ class ChatPromptHelper:
         Returns:
             str: The formatted content.
         """
-        return TemplateEngine.render(content, template_format=template_format, **kwargs)
+        return TemplateEngine.render_mapping(
+            content, kwargs, template_format=template_format
+        )
 
     @classmethod
     def extract_role_and_content(
@@ -211,6 +222,8 @@ class ChatPromptHelper:
         Raises:
             ValueError: If the role is not recognized.
         """
+        if not isinstance(role, str):
+            raise ValueError(f"Invalid message role: {role}")
         role = role.strip().lower()
         if role not in cls._ROLE_MAP:
             raise ValueError(f"Invalid message role: {role}")
@@ -229,6 +242,8 @@ class ChatPromptHelper:
     @classmethod
     def get_message_class(cls, role: str) -> Optional[Type[BaseMessage]]:
         """Get the message class for a given role."""
+        if not isinstance(role, str):
+            return None
         return cls._ROLE_MAP.get(role.lower(), None)
 
     @classmethod
@@ -258,6 +273,8 @@ class ChatPromptHelper:
     @classmethod
     def to_message(cls, role: str, content: str) -> BaseMessage:
         """Parse a single chunk of content into a message object."""
+        if not isinstance(role, str):
+            raise ValueError(f"Invalid message role: '{role}'")
         role = role.strip().lower()
         content = content.strip()
 
@@ -323,7 +340,7 @@ class ChatPromptTemplate(PromptTemplateBase):
     _ROLE_MAP = ChatPromptHelper._ROLE_MAP
 
     def format_prompt(
-        self, template_format: Optional[str] = None, **kwargs: Any
+        self, /, template_format: Optional[str] = None, **kwargs: Any
     ) -> List[Dict[str, Any]]:
         """
         Format the prompt by processing placeholders, rendering the template with variables,
@@ -332,7 +349,18 @@ class ChatPromptTemplate(PromptTemplateBase):
         Returns:
             List[Dict[str, Any]]: The list of formatted messages as dictionaries.
         """
-        template_format = template_format or self.template_format
+        if (
+            template_format is not None
+            and template_format not in TemplateEngine.SUPPORTED_FORMATS
+            and (
+                "template_format" in self.input_variables
+                or "template_format" in self.pre_filled_variables
+            )
+        ):
+            kwargs = {"template_format": template_format, **kwargs}
+            effective_format: str = self.template_format
+        else:
+            effective_format = template_format or self.template_format
         all_variables = self.prepare_variables_for_formatting(**kwargs)
 
         # Check for undeclared or missing variables
@@ -385,8 +413,8 @@ class ChatPromptTemplate(PromptTemplateBase):
                         ).model_dump()
                     )
                 else:
-                    formatted_content = TemplateEngine.render(
-                        content, template_format=template_format, **all_variables
+                    formatted_content = TemplateEngine.render_mapping(
+                        content, all_variables, template_format=effective_format
                     )
                     parsed_messages, plain_text = ChatPromptHelper.parse_as_messages(
                         formatted_content
@@ -418,6 +446,7 @@ class ChatPromptTemplate(PromptTemplateBase):
     @classmethod
     def from_messages(
         cls,
+        /,
         messages: List[
             Union[Tuple[str, str], Dict[str, Any], BaseMessage, MessagePlaceHolder]
         ],
@@ -455,7 +484,7 @@ class ChatPromptTemplate(PromptTemplateBase):
         return cls(
             input_variables=list(ordered_vars.keys()),
             messages=messages,
-            template_format=template_format,
+            template_format=cast(Literal["f-string", "jinja2"], template_format),
         )
 
 

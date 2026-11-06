@@ -132,3 +132,66 @@ class TestDirectFunctions:
 
     def test_extract_jinja_variables_direct(self):
         assert extract_jinja_variables("{{ x }} and {{ y }}") == ["x", "y"]
+
+    def test_extract_jinja_variables_does_not_mutate_caller_environment(self):
+        from jinja2 import Environment
+
+        caller_env = Environment()
+        original_filters = dict(caller_env.filters)
+        original_tests = dict(caller_env.tests)
+
+        vars_found = extract_jinja_variables(
+            "{{ name | undeclared_filter }} {% if x is undeclared_test %}{{ x }}{% endif %}",
+            environment=caller_env,
+        )
+        assert vars_found == ["name", "x"]
+        assert "undeclared_filter" not in caller_env.filters
+        assert "undeclared_test" not in caller_env.tests
+        assert caller_env.filters == original_filters
+        assert caller_env.tests == original_tests
+
+    def test_render_mapping_reserved_parameter_names(self):
+        variables = {
+            "template": "T",
+            "template_format": "F",
+            "environment": "prod",
+            "cls": "MyClass",
+            "self": "me",
+        }
+        fstring_res = TemplateEngine.render_mapping(
+            "{template}:{template_format}:{environment}:{cls}:{self}",
+            variables,
+            "f-string",
+        )
+        assert fstring_res == "T:F:prod:MyClass:me"
+
+        jinja_res = TemplateEngine.render_mapping(
+            "{{ template }}:{{ template_format }}:{{ environment }}:{{ cls }}",
+            variables,
+            "jinja2",
+        )
+        assert jinja_res == "T:F:prod:MyClass"
+
+    def test_render_and_render_jinja_handle_colliding_kwargs(self):
+        assert (
+            TemplateEngine.render("Env: {environment}", "f-string", environment="prod")
+            == "Env: prod"
+        )
+        assert (
+            TemplateEngine.render(
+                "Env: {{ environment }}", "jinja2", environment="prod"
+            )
+            == "Env: prod"
+        )
+        assert (
+            TemplateEngine.render("Env: {{ environment }}", "jinja2", environment=None)
+            == "Env: None"
+        )
+        assert render_jinja("Env: {{ environment }}", environment="prod") == "Env: prod"
+        assert render_jinja("Env: {{ environment }}", environment=None) == "Env: None"
+        assert (
+            TemplateEngine.render(
+                "Cls: {cls}, Self: {self}", "f-string", **{"cls": "C", "self": "S"}
+            )
+            == "Cls: C, Self: S"
+        )

@@ -11,7 +11,7 @@
 # limitations under the License.
 #
 
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, cast
 
 from dapr_agents.prompt.base import PromptTemplateBase
 from dapr_agents.prompt.engine import TemplateEngine
@@ -31,7 +31,7 @@ class StringPromptTemplate(PromptTemplateBase):
     template: str
     template_format: Literal["f-string", "jinja2"] = "f-string"
 
-    def format_prompt(self, **kwargs: Any) -> str:
+    def format_prompt(self, /, **kwargs: Any) -> str:
         """
         Format the prompt by replacing variables in the template, using any provided keyword arguments.
         Validates the template structure before formatting.
@@ -65,13 +65,13 @@ class StringPromptTemplate(PromptTemplateBase):
             raise ValueError(f"Undeclared variables were passed: {extra_variables}")
 
         # Use the template engine to format the content
-        return TemplateEngine.render(
-            self.template, self.template_format, **all_variables
+        return TemplateEngine.render_mapping(
+            self.template, all_variables, self.template_format
         )
 
     @classmethod
     def from_template(
-        cls, template: str, template_format: str = "f-string", **kwargs: Any
+        cls, /, template: str, template_format: str = "f-string", **kwargs: Any
     ) -> "StringPromptTemplate":
         """
         Create a StringPromptTemplate from a template string.
@@ -89,7 +89,7 @@ class StringPromptTemplate(PromptTemplateBase):
         )
         return cls(
             template=template,
-            template_format=template_format,
+            template_format=cast(Literal["f-string", "jinja2"], template_format),
             input_variables=input_variables,
             **kwargs,
         )

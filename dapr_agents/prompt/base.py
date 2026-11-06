@@ -37,7 +37,7 @@ class PromptTemplateBase(ABC, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @abstractmethod
-    def format_prompt(self, **kwargs: Any) -> Union[str, List[Any]]:
+    def format_prompt(self, /, **kwargs: Any) -> Union[str, List[Any]]:
         """
         Abstract method for formatting the prompt. Must be implemented by subclasses.
 
@@ -50,7 +50,7 @@ class PromptTemplateBase(ABC, BaseModel):
         pass
 
     def pre_fill_variables(
-        self, **kwargs: Union[str, Callable[[], str]]
+        self, /, **kwargs: Union[str, Callable[[], str]]
     ) -> "PromptTemplateBase":
         """
         Create a new instance of the prompt template with some input variables already pre-filled.
@@ -75,7 +75,7 @@ class PromptTemplateBase(ABC, BaseModel):
             }
         )
 
-    def prepare_variables_for_formatting(self, **kwargs: Any) -> Dict[str, Any]:
+    def prepare_variables_for_formatting(self, /, **kwargs: Any) -> Dict[str, Any]:
         """
         Merge user-provided variables with pre-filled variables, resolving any callable pre-fills.
 
