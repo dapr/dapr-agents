@@ -89,6 +89,8 @@ def _resume_input(
     approved: bool,
     round_: int,
     reason: Optional[str] = None,
+    *,
+    supports_caller_session_alias: bool = False,
 ) -> Dict[str, Any]:
     """Build the ``run_executor`` input that resumes ``paused`` with a decision."""
     decision = ToolCallDecision(
@@ -106,7 +108,14 @@ def _resume_input(
         "context": context,
         "round": round_,
     }
-    session_id = paused.session_id or first_input.get("session_id")
+    # Resume the session the paused run reported, unless the executor maps the
+    # caller's id to that same session (Claude derives a UUID from a non-UUID
+    # id); then keep the caller's id, as the first run had it.
+    caller_session = first_input.get("session_id")
+    if supports_caller_session_alias:
+        session_id = caller_session or paused.session_id
+    else:
+        session_id = paused.session_id or caller_session
     if session_id:
         resumed["session_id"] = session_id
     return resumed
@@ -161,6 +170,7 @@ class DurableExecutorMixin:
             if self.execution.max_approval_rounds is not None
             else self.execution.max_iterations
         )
+        supports_caller_session_alias = self.executor.supports_caller_session_alias
         payload = first_input
         round_ = 0
         while True:
@@ -181,7 +191,12 @@ class DurableExecutorMixin:
             if round_ > max_approvals:
                 self._log_approval_limit(ctx, max_approvals)
                 payload = _resume_input(
-                    first_input, paused, False, round_, _LIMIT_REASON
+                    first_input,
+                    paused,
+                    False,
+                    round_,
+                    _LIMIT_REASON,
+                    supports_caller_session_alias=supports_caller_session_alias,
                 )
                 continue
             approved, reason = yield from self._await_approval(
@@ -191,7 +206,14 @@ class DurableExecutorMixin:
                 paused.require_approval(),
                 source=paused.source,
             )
-            payload = _resume_input(first_input, paused, approved, round_, reason)
+            payload = _resume_input(
+                first_input,
+                paused,
+                approved,
+                round_,
+                reason,
+                supports_caller_session_alias=supports_caller_session_alias,
+            )
 
         return {"role": "assistant", "content": _APPROVAL_LIMIT_MESSAGE}
 

@@ -12,7 +12,7 @@
 #
 
 
-from .client import AnthropicClientBase
+from .client import DEFAULT_TIMEOUT_SECONDS, AnthropicClientBase
 from .chat import AnthropicChatClient
 
-__all__ = ["AnthropicClientBase", "AnthropicChatClient"]
+__all__ = ["DEFAULT_TIMEOUT_SECONDS", "AnthropicClientBase", "AnthropicChatClient"]

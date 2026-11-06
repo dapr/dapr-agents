@@ -24,7 +24,6 @@ import pytest
 
 from dapr_agents.agents.configs import (
     AgentPubSubConfig,
-    AgentRegistryConfig,
     AgentStateConfig,
 )
 from dapr_agents.agents.durable import DurableAgent
@@ -80,9 +79,6 @@ def agent() -> DurableAgent:
         llm=llm,
         pubsub=AgentPubSubConfig(pubsub_name="testpubsub", agent_topic="ApiAgent"),
         state=AgentStateConfig(store=StateStoreService(store_name="teststatestore")),
-        registry=AgentRegistryConfig(
-            store=StateStoreService(store_name="testregistry")
-        ),
     )
 
 

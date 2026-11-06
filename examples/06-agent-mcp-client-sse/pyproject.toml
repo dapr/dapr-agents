@@ -14,7 +14,7 @@
 [project]
 name = "06-agent-mcp-client-sse"
 version = "0.1.0"
-requires-python = ">=3.11, <3.14"
+requires-python = ">=3.11, <3.15"
 dependencies = [
     "dapr-agents",
     "python-dotenv>=1.2.1",

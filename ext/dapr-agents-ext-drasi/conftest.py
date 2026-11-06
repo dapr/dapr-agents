@@ -13,7 +13,7 @@
 
 """Fail loudly instead of silently skipping the Drasi extension tests.
 
-The test modules under ``tests/`` skip themselves when ``dapr_agents.ext.drasi``
+The static test modules under ``tests/`` skip themselves when ``dapr_agents.ext.drasi``
 cannot be imported, which is right for a checkout without the ``drasi`` extra.
 It also hid every test in CI: when these tests share a session with the
 repository's ``tests/`` suite, ``tests/conftest.py`` puts the repository root on
@@ -27,8 +27,9 @@ still skips itself even when the package imports fine.
 
 The second check recognises a module-level
 ``pytest.mark.skipif(<bool>, reason="dapr-agents-ext-drasi is not available...")``,
-the form every module in ``tests/`` uses; keep new modules to that form. A
-string condition, ``pytest.importorskip`` or ``pytest.skip`` is not detected.
+the form the static test modules use. Private subscription tests import their
+dependencies directly and fail collection if they are missing. A string
+condition, ``pytest.importorskip`` or ``pytest.skip`` is not detected.
 Under pytest-xdist the failure is reported as an INTERNALERROR.
 This file sits outside ``tests/`` because both suites have a ``tests`` package,
 and two ``tests.conftest`` modules cannot be registered in one session.

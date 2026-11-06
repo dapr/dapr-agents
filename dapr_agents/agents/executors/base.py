@@ -58,6 +58,11 @@ class AgentExecutorBase(ABC):
     """Whether ``run`` may end with a ``paused`` event and accepts
     ``context[CONTEXT_TOOL_DECISIONS]`` to resume it."""
 
+    supports_caller_session_alias: ClassVar[bool] = False
+    """Whether a paused run is resumed with the caller's ``session_id``
+    instead of the one the ``paused`` event reported. Set it only when
+    ``run`` maps the caller's id to that same session every time."""
+
     def bind(self, binding: ExecutorBinding) -> "AgentExecutorBase":
         """
         Return an executor configured with what the hosting agent offers.

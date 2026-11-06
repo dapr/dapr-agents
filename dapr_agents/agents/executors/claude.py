@@ -169,6 +169,8 @@ class ClaudeAgentExecutor(AgentExecutorBase):
     """
 
     supports_tool_approval = True
+    # session_uuid() maps a caller's id to the same session every time.
+    supports_caller_session_alias = True
 
     def __init__(self, config: Optional[ClaudeAgentExecutorConfig] = None) -> None:
         given = config or ClaudeAgentExecutorConfig()
