@@ -175,7 +175,7 @@ def _result_text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, default=str)
 
 
-class ExecutorRunRecorder:
+class LegacyExecutorRunRecorder:
     """
     Applies one executor run's events to the workflow entry.
 
@@ -395,10 +395,116 @@ class ExecutorRunRecorder:
         return self.final_message
 
 
+class ExecutorRunRecorder:
+    """
+    Follows one executor run's events.
+
+    Args:
+        agent: The hosting ``DurableAgent``.
+        emitter: Session stream emitter, or ``None`` when not streaming.
+        observer: Receives every event.
+    """
+
+    def __init__(
+        self,
+        agent: Any,
+        *,
+        emitter: Optional[StreamEmitter],
+        observer: ExecutorRunObserver,
+    ) -> None:
+        self._agent = agent
+        self._emitter = emitter
+        self._observer = observer
+        self.session_id: Optional[str] = None
+        self.final_message: Optional[Dict[str, Any]] = None
+        self.paused: Optional[PausedExecutorRun] = None
+        self.terminal_error: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    def set_session_id(self, session_id: Optional[str]) -> None:
+        if session_id:
+            self.session_id = session_id
+
+    def handle(self, event: AgentEvent) -> bool:
+        """Apply one event; return ``True`` once the run reached its end.
+
+        Raises:
+            AgentError: On an ``error`` event.
+        """
+        self._observer.on_event(event)
+        self.set_session_id(event.session_id)
+        match event.type:
+            case ev.EVENT_TEXT_DELTA:
+                if self._emitter is not None and isinstance(event.content, str):
+                    self._emitter.emit_text_delta(event.content)
+            case ev.EVENT_MESSAGE:
+                self._on_message(_as_message(event.content))
+            case ev.EVENT_COMPLETE:
+                self._on_complete(event)
+            case ev.EVENT_PAUSED:
+                self._on_paused(event)
+            case ev.EVENT_ERROR:
+                message = f"AgentExecutor emitted error: {event.content}"
+                if event.metadata.get(ev.METADATA_RETRYABLE) is not False:
+                    raise AgentError(message)
+                self.terminal_error = message
+        return event.type in ev.TERMINAL_EVENT_TYPES
+
+    # ------------------------------------------------------------------
+    def _on_message(self, message: Dict[str, Any]) -> None:
+        if message.get("role") == "assistant" and not self._agent.orchestrator:
+            self._agent.text_formatter.print_message(message)
+
+    @staticmethod
+    def _usage(event: AgentEvent) -> Dict[str, Any]:
+        return {k: event.metadata[k] for k in _USAGE_FIELDS if k in event.metadata}
+
+    def _on_complete(self, event: AgentEvent) -> None:
+        self.final_message = _as_message(event.content)
+        if self._emitter is not None:
+            self._emitter.complete_turn(self.final_message, metadata=self._usage(event))
+
+    def _on_paused(self, event: AgentEvent) -> None:
+        paused = PausedExecutorRun.from_event(event)
+        if paused.session_id is None:
+            paused = replace(paused, session_id=self.session_id)
+        self.paused = paused
+        if self._emitter is not None:
+            self._emitter.emit_event(
+                StreamChunkType.TURN_PAUSED,
+                event_data={
+                    "reason": "tool_approval",
+                    "tool_call_id": paused.tool_call_id,
+                    "tool_name": paused.name,
+                },
+            )
+
+    # ------------------------------------------------------------------
+    def fail(self, exc: BaseException) -> None:
+        """Report a failed run on the stream."""
+        if self._emitter is not None:
+            self._emitter.emit_error(type(exc).__name__, str(exc))
+
+    def result(self) -> Dict[str, Any]:
+        """The ``run_executor`` activity result.
+
+        Raises:
+            AgentError: If the run ended without a terminal event.
+        """
+        if self.terminal_error is not None:
+            return {EXECUTOR_FAILED_KEY: self.terminal_error}
+        if self.paused is not None:
+            return self.paused.to_activity_result()
+        if self.final_message is None:
+            raise AgentError("AgentExecutor stream ended without a 'complete' event.")
+        return self.final_message
+
+
 __all__ = [
     "EXECUTOR_FAILED_KEY",
     "EXECUTOR_PAUSED_KEY",
     "executor_failure",
     "ExecutorRunRecorder",
+    "LegacyExecutorRunRecorder",
     "PausedExecutorRun",
 ]

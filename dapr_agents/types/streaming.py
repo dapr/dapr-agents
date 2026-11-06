@@ -52,7 +52,7 @@ class StreamChunkType(str, Enum):
     CONTENT_DELTA = "content_delta"
     TOOL_CALL_DELTA = "tool_call_delta"
     #: Reserved — not emitted in v1. Future releases may surface tool-call
-    #: results via this type; today tool results land in ``entry.messages``
+    #: results via this type; today tool results reach the next LLM call
     #: and are visible on subsequent ``CONTENT_DELTA`` / ``TURN_COMPLETE``.
     TOOL_RESULT = "tool_result"
     #: Reserved — not emitted in v1. Consumers should use the first

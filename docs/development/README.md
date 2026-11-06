@@ -408,7 +408,7 @@ uv run python scripts/generate_metadata_schema.py --version X.X.X
 ### Internal class structuring/setup
 When to use Pydantic vs dataclasses:
 - Use Pydantic for:
-  - Data crossing trust boundaries or is persisted: API payloads, pub/sub messages, persisted state (workflow state, timeline messages, trigger/broadcast schemas, tool records, etc.).
+  - Data crossing trust boundaries or is persisted: API payloads, pub/sub messages, workflow and activity payloads, persisted state (workflow state, timeline messages, trigger/broadcast schemas, tool records, etc.).
   - Schemas requiring coercion, validation, or versioned migrations.
 - Use dataclasses for:
   - Agent construction knobs you pass in code (ie agent config classes).
@@ -428,21 +428,21 @@ on the old code fail to replay after the upgrade.
 The agents' workflows (`agent_workflow`, `orchestration_workflow`, `on_broadcast`) are
 registered as named versions in `DurableAgent.register_workflows`. Each instance replays on the
 version it started on; new instances run the latest. Instances started before versioning was
-introduced carry no version and run the latest one. Versioning needs Dapr runtime 1.17 or later;
-older runtimes do not record the version, so every instance runs the latest.
+introduced carry no version and run the latest one. Versions and patches need Dapr runtime 1.17
+or later, and `DurableAgent` refuses to start on an older one.
 
 - **Small change: a patch.** Branch on a unique id. New instances take the new path, replaying
-  instances that never saw the patch take the old one:
+  instances that never saw the patch take the old one. `agent_workflow` and
+  `orchestration_workflow` start with one:
 
   ```python
-  if ctx.is_patched("skip-initial-entry"):
-      ...  # new code
-  else:
-      ...  # the code as it was
+  if not ctx.is_patched("history-conversation"):
+      return (yield from self._agent_workflow_legacy(ctx, message))
+  ...  # the new body
   ```
 
-  Never reuse an id, and never remove, rename or reorder a patch while instances that may have
-  evaluated it can still run.
+  Never reuse, rename or reorder a patch id. The `is_patched` line is permanent: once a run has
+  recorded the patch, deleting the check makes Dapr stall that run.
 - **Larger change: a new version.** Add the new body as its own method, without the
   original's decorators. The runner and the pub/sub routes start the workflow by name, so new
   runs get the latest version; a second `@workflow_entry` breaks the runner's entry lookup, and
@@ -455,9 +455,22 @@ older runtimes do not record the version, so every instance runs the latest.
   input, and an activity scheduled by old code that runs after an upgrade receives the old
   input. Change inputs additively (new optional fields), and keep a removed activity registered
   while old instances may still schedule it.
-- **Removing a version or a patch.** Only once `dapr workflow list` shows no instance started
-  before it. During a rolling upgrade, a new instance can stall on a replica that still runs the
-  old code; it continues once the rollout finishes.
+- **Removing old code.** Delete the old branch of a patch once `dapr workflow list` shows no
+  instance started before the patch, and keep the `is_patched` line. Remove a version once no
+  instance runs on it. During a rolling upgrade, a new instance can stall on a replica that still
+  runs the old code; it continues once the rollout finishes.
+
+**The `history-conversation` patch.** Fresh runs rebuild their conversation from their own
+workflow history; runs that started before the patch keep the state-store record. Their code is
+the `_*_legacy` methods in `durable.py` and `durable_executor.py`, the `record_initial_entry` and
+`save_tool_results` activities, `LegacyExecutorRunRecorder` and the state layer
+(`AgentWorkflowEntry`, `StateModelBundle`, the `get_state`/`save_state` family). An activity
+used by both paths routes an old-shaped input to its `_legacy` body on a key only the new input
+carries (`history_len` or `stream_context`). A rebuilt conversation arrives as one gRPC
+message, so raise the workflow gRPC receive limit (`WorkflowGrpcOptions`) when a run's history
+can exceed the 4 MB default. Once no run started before the patch remains,
+delete all of that and the old-path tests (each `*_history.py` test module then replaces the
+module it mirrors), and keep the two `is_patched` lines and every activity name.
 
 See [Workflow versioning](https://docs.dapr.io/developing-applications/building-blocks/workflow/workflow-versioning/)
 in the Dapr docs.
