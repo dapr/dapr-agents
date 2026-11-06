@@ -319,11 +319,21 @@ class LLMStreamingMixin:
             if isinstance(usage, dict):
                 if "prompt_tokens" in usage:
                     span.set_attribute(
-                        GEN_AI_USAGE_INPUT_TOKENS, int(usage["prompt_tokens"])
+                        GEN_AI_USAGE_INPUT_TOKENS,
+                        int(usage["prompt_tokens"]),
+                    )
+                elif "input_tokens" in usage:
+                    span.set_attribute(
+                        GEN_AI_USAGE_INPUT_TOKENS, int(usage["input_tokens"])
                     )
                 if "completion_tokens" in usage:
                     span.set_attribute(
-                        GEN_AI_USAGE_OUTPUT_TOKENS, int(usage["completion_tokens"])
+                        GEN_AI_USAGE_OUTPUT_TOKENS,
+                        int(usage["completion_tokens"]),
+                    )
+                elif "output_tokens" in usage:
+                    span.set_attribute(
+                        GEN_AI_USAGE_OUTPUT_TOKENS, int(usage["output_tokens"])
                     )
         except Exception as exc:  # noqa: BLE001 - never break the stream
             logger.debug("LLMWrapper streaming attribute set failed: %s", exc)
