@@ -49,6 +49,25 @@ def extract_message_models(type_hint: Any) -> list[type]:
     return [type_hint] if isinstance(type_hint, type) else []
 
 
+def extract_and_validate_message_models(type_hint: Any) -> list[type]:
+    """Extract the concrete classes from ``type_hint`` and check each is supported.
+
+    Args:
+        type_hint (Any): A single class or a ``Union[...]`` of classes.
+
+    Returns:
+        list[type]: The extracted classes (empty when none could be extracted).
+
+    Raises:
+        TypeError: If an extracted class is not a supported message model.
+    """
+    models = extract_message_models(type_hint)
+    for model in models:
+        if not is_supported_model(model):
+            raise TypeError(f"Unsupported model type: {model!r}")
+    return models
+
+
 def _maybe_json_loads(payload: Any, content_type: Optional[str]) -> Any:
     """Best-effort: parse JSON by content-type hint or shape; otherwise return original value."""
     try:
