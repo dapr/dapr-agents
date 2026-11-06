@@ -168,7 +168,12 @@ def last_user_prompt(entries: Sequence[Mapping[str, Any]]) -> Optional[str]:
 
 
 def last_total_cost(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
-    """Return the session's cumulative cost from the last ``cost-state`` entry."""
+    """Return the session's cumulative cost from the last ``cost-state`` entry.
+
+    Use this for a local-disk CLI transcript, where each ``cost-state`` entry
+    already holds the session-cumulative total. For a SessionStore transcript
+    of per-run totals, use :func:`sum_cost_state_totals` instead.
+    """
     for entry in reversed(entries):
         if entry.get("type") == "cost-state":
             value = entry.get("totalCostUSD")
@@ -176,3 +181,22 @@ def last_total_cost(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
                 return float(value)
             return None
     return None
+
+
+def sum_cost_state_totals(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
+    """Sum every numeric ``cost-state`` ``totalCostUSD`` in append order.
+
+    SessionStore materialize resumes start the CLI cost counter at zero each
+    run, so each appended ``cost-state`` is that run's cost alone. Summing
+    them recovers the true session prior across multiple store resumes.
+    """
+    total = 0.0
+    found = False
+    for entry in entries:
+        if entry.get("type") != "cost-state":
+            continue
+        value = entry.get("totalCostUSD")
+        if isinstance(value, (int, float)):
+            total += float(value)
+            found = True
+    return total if found else None
