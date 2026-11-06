@@ -38,6 +38,10 @@ class StateStoreError(RuntimeError):
     """Raised when high-level state operations fail."""
 
 
+class InvalidStateError(StateStoreError):
+    """Raised when stored state is malformed, so retrying the read cannot help."""
+
+
 class StateStoreService:
     """
     High-level state helper that composes a `DaprStateStore` instance.
@@ -183,7 +187,7 @@ class StateStoreService:
         try:
             parsed = self.model(**payload)
         except ValidationError as exc:
-            raise StateStoreError(f"State validation failed: {exc.errors()}") from exc
+            raise InvalidStateError(f"State validation failed: {exc.errors()}") from exc
         return parsed if return_model else self._model_dump(parsed)
 
     def _save_local_copy(self, *, key: str, data: Dict[str, Any]) -> None:
@@ -269,12 +273,12 @@ class StateStoreService:
         try:
             state_data = response.json()
         except Exception as exc:  # noqa: BLE001
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' is not valid JSON: {exc}"
             ) from exc
 
         if not isinstance(state_data, dict):
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' must be a dict, got {type(state_data)}"
             )
 
@@ -325,12 +329,12 @@ class StateStoreService:
         try:
             state_data = response.json()
         except Exception as exc:  # noqa: BLE001
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' is not valid JSON: {exc}"
             ) from exc
 
         if not isinstance(state_data, dict):
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' must be a dict, got {type(state_data)}"
             )
 
@@ -722,6 +726,7 @@ def execute_state_transaction(
 
 __all__ = [
     "StateStoreError",
+    "InvalidStateError",
     "StateStoreService",
     "DaprStateStore",
     "_coerce_state_options",
