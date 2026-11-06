@@ -13,6 +13,7 @@
 
 from .base import PromptTemplateBase
 from .chat import ChatPromptTemplate
+from .engine import TemplateEngine
 from .prompty import Prompty
 from .string import StringPromptTemplate
 from .utils.prompty import PromptyHelper
@@ -21,6 +22,7 @@ __all__ = [
     "PromptTemplateBase",
     "ChatPromptTemplate",
     "StringPromptTemplate",
+    "TemplateEngine",
     "Prompty",
     "PromptyHelper",
 ]
