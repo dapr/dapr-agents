@@ -37,7 +37,10 @@ from dapr_agents.ext.drasi._models import (
     SubscriptionIntent,
     SubscriptionStatus,
 )
-from dapr_agents.ext.drasi.subscription_tools import build_subscription_tools
+from dapr_agents.ext.drasi.subscription_tools import (
+    _tool_name,
+    build_subscription_tools,
+)
 from dapr_agents.tool import AgentTool
 from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.types import AgentToolExecutorError, ToolError, ToolResult
@@ -508,6 +511,44 @@ def test_listing_includes_retired_intent_missing_from_current_catalog(
     assert result.isError is False
     assert retired.query_id in result.content[0].text
     assert "unavailable" in result.content[0].text
+
+
+@pytest.mark.parametrize("current_ids", ((), ("rollout-status",)))
+def test_retained_queries_get_only_bound_cleanup_tools(
+    catalog: ListQueriesResponse,
+    manager: ScriptedSubscriptionManager,
+    status_intents: dict[SubscriptionStatus, SubscriptionIntent],
+    current_ids: tuple[str, ...],
+) -> None:
+    retired = status_intents["unavailable"]
+    tools = build_subscription_tools(
+        _catalog_with_ids(catalog, list(current_ids)),
+        manager,
+        retained_query_ids=(retired.query_id, *current_ids),
+    )
+    by_name = {tool.name: tool for tool in tools}
+    expected = {"list_drasi_subscriptions", _tool_name("unsubscribe", retired.query_id)}
+    for query_id in current_ids:
+        expected.update(
+            (_tool_name("subscribe", query_id), _tool_name("unsubscribe", query_id))
+        )
+    assert set(by_name) == expected
+    assert len(tools) == len(expected)
+    cleanup = by_name[_tool_name("unsubscribe", retired.query_id)]
+    schema = cleanup.to_function_call(format_type="openai")["function"]["parameters"]
+    assert schema["properties"] == {}
+    assert schema["additionalProperties"] is False
+    assert "no longer in the prepared catalog" in cleanup.description
+
+    manager.set_subscriptions((retired,))
+    listed = by_name["list_drasi_subscriptions"].run()
+    assert not listed.isError
+    assert retired.query_id in listed.content[0].text
+    assert "unavailable" in listed.content[0].text
+    manager.queue_unsubscribe()
+    assert not cleanup.run().isError
+    assert manager.unsubscribe_calls == (retired.query_id,)
+    assert manager.subscribe_calls == ()
 
 
 @pytest.mark.parametrize("command", ("subscribe", "unsubscribe", "list"))

@@ -16,20 +16,26 @@
 from __future__ import annotations
 
 import json
+from dataclasses import FrozenInstanceError
 
 import pytest
-from drasi_agent_router_contracts import ListQueriesResponse
+from drasi_agent_router_contracts import AgentDelivery, ListQueriesResponse, parse
 from drasi_agent_router_contracts.models.Operation import Operation
 from pydantic import ValidationError
 
 from dapr_agents.ext.drasi._models import (
+    Discard,
     IntentDocument,
+    Poison,
     ResolvedDrasiConfig,
+    Retry,
     RouterFailureCategory,
     MutationOutcome,
     RouterOperationOutcome,
+    SchedulingInput,
     SubscriptionIntent,
     SubscriptionScope,
+    SubscriptionStatus,
 )
 
 
@@ -324,7 +330,66 @@ def test_confirmed_router_outcome_has_no_error_category() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "result",
+    (
+        Discard(reason="no_intent"),
+        Discard(reason="unavailable"),
+        Retry(reason="pending_subscription"),
+        Retry(reason="state_corrupt"),
+        Poison(reason="invalid_delivery"),
+        Poison(reason="router_mismatch"),
+    ),
+)
+def test_admission_decision_variants_are_plain_immutable_values(
+    result: Discard | Retry | Poison,
+) -> None:
+    assert result.reason
+    with pytest.raises(FrozenInstanceError):
+        result.reason = result.reason
+
+
+def test_scheduling_input_owns_immutable_hidden_task_text() -> None:
+    task_text = "Investigate error 123 using the retained instructions."
+    result = SchedulingInput(
+        instance_id="scope:incarnation:event",
+        event_id="drasi:v1:service-errors:42:i:0",
+        task=task_text,
+    )
+
+    task_text += " caller mutation"
+    assert result.task == "Investigate error 123 using the retained instructions."
+    assert result.task not in repr(result)
+    with pytest.raises(FrozenInstanceError):
+        result.task = "replacement"
+
+
 def test_intent_repr_excludes_raw_instructions(
     active_intent: SubscriptionIntent,
 ) -> None:
     assert active_intent.instructions not in repr(active_intent)
+
+
+def test_published_canonical_deliveries_cover_insert_update_delete(
+    canonical_delivery: AgentDelivery,
+) -> None:
+    assert canonical_delivery.event.op in {"i", "u", "d"}
+    assert canonical_delivery.event.payload.source.queryId == "service-errors"
+
+
+def test_current_lifecycle_fixtures_share_subscription_incarnation(
+    active_intent: SubscriptionIntent,
+    status_intents: dict[SubscriptionStatus, SubscriptionIntent],
+    insert_delivery: AgentDelivery,
+    update_delivery: AgentDelivery,
+    delete_delivery: AgentDelivery,
+) -> None:
+    incarnations = {
+        active_intent.incarnation,
+        *(intent.incarnation for intent in status_intents.values()),
+        insert_delivery.subscriptionIncarnation,
+        update_delivery.subscriptionIncarnation,
+        delete_delivery.subscriptionIncarnation,
+    }
+
+    assert incarnations == {"incarnation-service-errors"}
