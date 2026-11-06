@@ -20,7 +20,7 @@ import inspect
 import json
 import threading
 import uuid
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -51,6 +51,7 @@ from dapr_agents.agents.orchestrators.llm.utils import (
 )
 
 from dapr_agents.agents.base import AgentBase
+from dapr_agents.agents.constants import AGENT_DEFAULT_TOOL_CHOICE
 from dapr_agents.agents.configs import (
     AgentMCPConfig,
     BuiltinTool,
@@ -330,6 +331,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             execution: Execution dials for the agent run.
 
             memory: Enable long-term conversation memory storage; defaults to false.
+                Set ``AgentMemoryConfig(summarize_on_completion=False)`` to skip
+                the end-of-run conversation summary (an extra LLM call) while
+                keeping memory configured.
             llm: Chat client; defaults to `get_default_llm()`. Mutually
                 exclusive with ``executor``.
             executor: Stateful agent runtime that is mutually exclusive with ``llm``.
@@ -403,7 +407,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # Re-enable tool_choice if AgentBase cleared it due to an empty tools list
             # but we've now registered agent-as-tool entries into the executor.
             if self._agents_as_tools and self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         # Register built-in tools (e.g., ``ask_user``) unless the caller opted
         # out via ``execution.builtin_tools``. These are lazy: streaming must
@@ -481,8 +485,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         self._orchestration_strategy: Optional[OrchestrationStrategy] = None
         # Initialize orchestration strategy if this agent is an orchestrator
         if self.execution.orchestration_mode:
-            # Default to "agent" mode if no mode specified
-
             match self.execution.orchestration_mode:
                 case OrchestrationMode.AGENT:
                     self._orchestration_strategy = AgentOrchestrationStrategy()
@@ -707,9 +709,15 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         )
 
                         # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
-                        hook_decisions: Dict[str, HookDecision] = {}
+                        # Keyed by position: tool_call_id can be "" or repeated.
+                        # Upgrade note: before this keying, calls sharing a tool_call_id
+                        # with mixed decisions were dispatched differently. A run paused
+                        # inside such a turn across the upgrade replays different
+                        # activities and can fail with a non-determinism error; drain or
+                        # restart those runs before upgrading.
+                        hook_decisions: Dict[int, HookDecision] = {}
                         if self._hooks and self._hooks.before_tool_call:
-                            for tc in tool_calls:
+                            for idx, tc in enumerate(tool_calls):
                                 fn_name_check = tc["function"]["name"]
                                 tool_obj_check = self.tool_executor.get_tool(
                                     fn_name_check
@@ -744,7 +752,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     approved = yield from self._request_approval(
                                         ctx, ctx.instance_id, tc, decision
                                     )
-                                    hook_decisions[tc["id"]] = (
+                                    hook_decisions[idx] = (
                                         Proceed()
                                         if approved
                                         else Deny(
@@ -755,7 +763,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
                                     )
                                 else:
-                                    hook_decisions[tc["id"]] = decision
+                                    hook_decisions[idx] = decision
 
                         ordered: List[Optional[Dict[str, Any]]] = [None] * len(
                             tool_calls
@@ -772,7 +780,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             fn_name = tc["function"]["name"]
 
                             # check hook decisions for this tool call
-                            hook_decision = hook_decisions.get(tc["id"])
+                            hook_decision = hook_decisions.get(idx)
 
                             if isinstance(hook_decision, Deny):
                                 # hook blocked the tool outright — synthesize a denial message
@@ -1085,8 +1093,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         )
                         # include hook-blocked/skipped tool calls so save_tool_results
                         # can record them in tool_history for observability
-                        for tc in tool_calls:
-                            decision_for_tracking = hook_decisions.get(tc["id"])
+                        for idx, tc in enumerate(tool_calls):
+                            decision_for_tracking = hook_decisions.get(idx)
                             if isinstance(decision_for_tracking, (Deny, Skip)):
                                 hook_label = (
                                     "denied"
@@ -1144,7 +1152,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 retry_policy=self._retry_policy,
             )
 
-        if self.memory is not None:
+        if self.memory is not None and self._memory.summarize_on_completion:
             yield ctx.call_activity(
                 self._activity_name(self.summarize),
                 input={},
@@ -3683,7 +3691,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 registered,
             )
             if self.execution.tool_choice is None:
-                self.execution.tool_choice = "auto"
+                self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
 
         return registered
 
@@ -4122,6 +4130,28 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         wrapper.__name__ = name
         return wrapper
 
+    def _register_versions(
+        self,
+        runtime: wf.WorkflowRuntime,
+        name: str,
+        versions: Sequence[Tuple[str, Callable[..., Any]]],
+    ) -> None:
+        """
+        Register every version of one workflow under ``name``.
+
+        ``versions`` lists ``(version_name, method)`` pairs, oldest first. New
+        instances run the last one, and so do instances started before
+        versioning; any other instance keeps the version it started on. See
+        "Changing workflow code" in ``docs/development/README.md``.
+        """
+        for i, (version, method) in enumerate(versions):
+            runtime.register_versioned_workflow(
+                self._named(method, name),
+                name=name,
+                version_name=version,
+                is_latest=i == len(versions) - 1,
+            )
+
     def _activity_name(self, method: Union[str, Callable[..., Any]]) -> str:
         """
         Return the agent-scoped registered name of an activity.
@@ -4212,12 +4242,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             runtime: The Dapr workflow runtime to register with.
         """
         # Primary entry point — unique per agent
-        runtime.register_workflow(
-            self._named(self.agent_workflow, self.agent_workflow_name)
+        self._register_versions(
+            runtime, self.agent_workflow_name, (("v1", self.agent_workflow),)
         )
         if self.broadcast_topic_name:
-            runtime.register_workflow(
-                self._named(self.on_broadcast, self.broadcast_workflow_name)
+            self._register_versions(
+                runtime, self.broadcast_workflow_name, (("v1", self.on_broadcast),)
             )
 
         # Standard agent activities, all scoped per agent
@@ -4228,11 +4258,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
         # Internal orchestration workflow and activities
         if self._orchestration_strategy:
-            runtime.register_workflow(
-                self._named(
-                    self.orchestration_workflow,
-                    orchestration_workflow_id(self.name, infra=self._infra),
-                )
+            self._register_versions(
+                runtime,
+                orchestration_workflow_id(self.name, infra=self._infra),
+                (("v1", self.orchestration_workflow),),
             )
 
             extras = (

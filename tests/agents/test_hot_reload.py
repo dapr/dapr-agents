@@ -21,7 +21,6 @@ from dapr_agents.agents.base import AgentBase
 from dapr_agents.agents.configs import (
     AgentMetadata,
     AgentMetadataSchema,
-    AgentObservabilityConfig,
     LLMMetadata,
     RuntimeSubscriptionConfig,
 )
@@ -107,8 +106,56 @@ class TestApplyConfigUpdate:
         assert "***" in caplog.text
 
     def test_hyphenated_key_normalized(self, basic_agent):
-        basic_agent._apply_config_update("agent-role", "Hyphen Role")
-        assert basic_agent.profile.role == "Hyphen Role"
+        basic_agent._apply_config_update("agent-role", "role")
+        assert basic_agent.profile.role == "role"
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("AGENT_SYSTEM_PROMPT", "prompt"),
+            ("agent-system-prompt", "prompt"),
+            ("agent_system_prompt", "prompt"),
+        ],
+    )
+    def test_supported_key_formats_are_normalized(self, basic_agent, key, value):
+        """Config keys using supported naming conventions
+        (SCREAMING_SNAKE_CASE, snake_case, kebab-case) should be normalized."""
+        basic_agent._apply_config_update(key, value)
+        assert basic_agent.profile.system_prompt == value
+
+    # TODO: Remove when deprecated key formats are removed
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("TOOL-CHOICE", "choice"),
+            ("Tool_Choice", "choice"),
+            ("Tool-Choice", "choice"),
+        ],
+    )
+    def test_deprecated_key_formats_are_normalized(self, basic_agent, key, value):
+        """Existing config keys using deprecated naming conventions
+        should still be normalized."""
+        basic_agent._apply_config_update(key, value)
+        assert basic_agent.execution.tool_choice == "choice"
+
+    # TODO: Remove when deprecated key formats are removed
+    def test_deprecated_key_formats_warn(self, basic_agent, caplog):
+        """Deprecated naming conventions should log a warning."""
+        keys = ["TOOL-CHOICE", "Tool_Choice", "Tool-Choice"]
+
+        with caplog.at_level(logging.WARNING):
+            for key in keys:
+                basic_agent._apply_config_update(key, "a choice")
+                basic_agent._apply_config_update(key, "another choice")
+
+        messages = [
+            record
+            for record in caplog.records
+            if "deprecated naming convention" in record.message
+        ]
+
+        # Updates are sequential so each key format should log a warning once
+        assert len(messages) == 3
 
     def test_invalid_type_for_valid_key_rejected(self, basic_agent, caplog):
         """Passing a non-coercible type (e.g. dict for an int key) should be
@@ -373,65 +420,6 @@ class TestStop:
         """stop() on an agent with no registry or config should not raise."""
         agent = ConcreteAgentBase(name="MinAgent", llm=mock_llm_client)
         agent.stop()  # Should complete without error
-
-
-class TestCoerceConfigValue:
-    """Tests for _coerce_config_value type coercion."""
-
-    def test_str_passthrough(self):
-        assert AgentBase._coerce_config_value("hello", str) == "hello"
-
-    def test_str_from_int(self):
-        assert AgentBase._coerce_config_value(42, str) == "42"
-
-    def test_int_from_string(self):
-        assert AgentBase._coerce_config_value("42", int) == 42
-
-    def test_int_from_float_string(self):
-        assert AgentBase._coerce_config_value("10.0", int) == 10
-
-    def test_int_already_int(self):
-        assert AgentBase._coerce_config_value(7, int) == 7
-
-    def test_int_invalid_raises(self):
-        with pytest.raises((ValueError, TypeError)):
-            AgentBase._coerce_config_value("not_a_number", int)
-
-    def test_bool_true_variants(self):
-        for v in ("true", "True", "1", "yes"):
-            assert AgentBase._coerce_config_value(v, bool) is True
-
-    def test_bool_false_variants(self):
-        for v in ("false", "False", "0", "no"):
-            assert AgentBase._coerce_config_value(v, bool) is False
-
-    def test_bool_invalid_raises(self):
-        with pytest.raises(ValueError):
-            AgentBase._coerce_config_value("maybe", bool)
-
-    def test_list_from_json(self):
-        result = AgentBase._coerce_config_value('["a", "b"]', list)
-        assert result == ["a", "b"]
-
-    def test_list_wraps_single_string(self):
-        result = AgentBase._coerce_config_value("single", list)
-        assert result == ["single"]
-
-    def test_list_already_list(self):
-        result = AgentBase._coerce_config_value(["already"], list)
-        assert result == ["already"]
-
-    def test_dict_from_json(self):
-        result = AgentBase._coerce_config_value('{"key": "val"}', dict)
-        assert result == {"key": "val"}
-
-    def test_dict_already_dict(self):
-        result = AgentBase._coerce_config_value({"key": "val"}, dict)
-        assert result == {"key": "val"}
-
-    def test_dict_non_dict_json_raises(self):
-        with pytest.raises(ValueError):
-            AgentBase._coerce_config_value("[1, 2]", dict)
 
 
 class TestLoadInitialConfiguration:
@@ -720,6 +708,61 @@ class TestOtelHotReload:
 
         basic_agent._apply_config_update("otel_sdk_disabled", "false")
         assert basic_agent._agent_observability.enabled is True
+
+    @pytest.mark.parametrize(
+        ("key", "attribute", "initial_value"),
+        [
+            ("otel_sdk_disabled", "enabled", True),
+            ("otel_tracing_enabled", "tracing_enabled", False),
+            ("otel_logging_enabled", "logging_enabled", True),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (True, True),
+            ("true", True),
+            ("True", True),
+            ("TRUE", True),
+            (False, False),
+            ("false", False),
+            ("False", False),
+            ("FALSE", False),
+        ],
+    )
+    def test_otel_boolean_values_are_accepted(
+        self, basic_agent, key, attribute, initial_value, value, expected
+    ):
+        """OTel settings accept only native booleans or case-insensitive `"true"`/`"false"` strings."""
+        expected_value = not expected if key == "otel_sdk_disabled" else expected
+        setattr(basic_agent._agent_observability, attribute, initial_value)
+
+        assert basic_agent._apply_config_update(key, value) is True
+        assert getattr(basic_agent._agent_observability, attribute) is expected_value
+
+    @pytest.mark.parametrize(
+        ("key", "attribute", "initial_value"),
+        [
+            ("otel_sdk_disabled", "enabled", True),
+            ("otel_tracing_enabled", "tracing_enabled", False),
+            ("otel_logging_enabled", "logging_enabled", True),
+        ],
+    )
+    @pytest.mark.parametrize("value", ["1", "yes", "t", "on", "0", "no", "f", "off"])
+    def test_otel_boolean_aliases_are_rejected_with_warning(
+        self, basic_agent, key, attribute, initial_value, value, caplog
+    ):
+        setattr(basic_agent._agent_observability, attribute, initial_value)
+
+        with caplog.at_level(logging.WARNING):
+            assert basic_agent._apply_config_update(key, value) is False
+
+        assert any(
+            record.levelno == logging.WARNING
+            and "skipping config update" in record.message
+            for record in caplog.records
+        )
+        assert getattr(basic_agent._agent_observability, attribute) is initial_value
 
     def test_otel_endpoint_setter(self, basic_agent):
         basic_agent._apply_config_update(

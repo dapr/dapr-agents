@@ -1,0 +1,85 @@
+#
+# Copyright 2026 The Dapr Authors
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Turns the "automerge" label into GitHub auto-merge.
+# The branch is protected by a merge queue, which rejects the direct merge the
+# shared dapr-bot automerge script attempts. Auto-merge instead adds the PR to
+# the queue once its required reviews and checks pass.
+# Removing the label turns auto-merge off again.
+# The schedule picks up PRs labelled by Dependabot, whose events get no secrets.
+
+name: Automerge via merge queue
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+      - unlabeled
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: automerge-queue-${{ github.event.pull_request.number || 'sweep' }}
+
+# Keep in sync with the label name in the job-level `if`, which cannot read env.
+env:
+  AUTOMERGE_LABEL: automerge
+
+jobs:
+  enable-auto-merge:
+    if: >-
+      github.repository_owner == 'dapr' &&
+      (github.event_name != 'pull_request_target' ||
+        (github.event.label.name == 'automerge' && github.actor != 'dependabot[bot]'))
+    # Runs whose actor is Dependabot get no Actions secrets, so the sweep handles them.
+    name: Enable auto-merge for labelled PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sync auto-merge with the label
+        env:
+          GH_TOKEN: ${{ secrets.DAPR_BOT_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            # Act on the live PR state rather than the event, so runs that land out of order converge.
+            pr_state=$(gh pr view "$PR_NUMBER" --json labels,isDraft,autoMergeRequest)
+            pr_fields=$(jq -r --arg label "$AUTOMERGE_LABEL" \
+              '[any(.labels[]; .name == $label), .isDraft, (.autoMergeRequest != null)] | @tsv' \
+              <<< "$pr_state")
+            read -r labelled draft enabled <<< "$pr_fields"
+
+            if [ "$labelled" = "false" ] && [ "$enabled" = "true" ]; then
+              gh pr merge "$PR_NUMBER" --disable-auto
+            elif [ "$labelled" = "true" ] && [ "$draft" = "false" ] && [ "$enabled" = "false" ]; then
+              gh pr merge "$PR_NUMBER" --auto --squash
+            else
+              echo "Nothing to do for #$PR_NUMBER (labelled=$labelled draft=$draft auto-merge=$enabled)"
+            fi
+            exit 0
+          fi
+
+          pending=$(gh pr list --state open --label "$AUTOMERGE_LABEL" --limit 100 \
+            --json number,isDraft,autoMergeRequest \
+            --jq '.[] | select(.isDraft | not) | select(.autoMergeRequest == null) | .number')
+          for pr in $pending; do
+            echo "Enabling auto-merge on #$pr"
+            gh pr merge "$pr" --auto --squash || echo "::warning::Could not enable auto-merge on #$pr"
+          done

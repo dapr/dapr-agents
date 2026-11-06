@@ -11,8 +11,9 @@
 # limitations under the License.
 #
 
-import requests
 import os
+
+import requests
 
 
 def construct_auth_headers(auth_url, grant_type="client_credentials", **kwargs):

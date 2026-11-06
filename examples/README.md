@@ -277,6 +277,17 @@ This example shows how to deploy agents with full observability on Kubernetes, i
 
 [Go to OpenTelemetry Observability on Kubernetes](./demo-otel-k8s)
 
+### Durable Deep Agent
+
+A deep-agent style research task built as a `DurableAgent`, with a crash-and-resume walkthrough:
+
+- **Plan First**: A lead agent writes a plan, then works through it one step at a time
+- **Subagent**: Each research question is handed to a researcher subagent running as a child workflow
+- **Notes in a State Store**: Intermediate notes are saved to a Dapr state store by a tool, not carried in the conversation
+- **Crash and Resume**: Stop the process mid-run, restart it, and finished steps come back from workflow history with no new LLM calls
+
+[Go to Durable Deep Agent](./14-durable-deep-agent)
+
 ## Extension Examples
 
 ### Drasi Change-Driven Agents on Kubernetes
