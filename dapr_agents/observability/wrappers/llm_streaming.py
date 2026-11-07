@@ -29,6 +29,8 @@ from typing import Any, Dict
 from ..constants import (
     GEN_AI_OUTPUT_MESSAGES,
     GEN_AI_RESPONSE_FINISH_REASONS,
+    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
     GEN_AI_USAGE_INPUT_TOKENS,
     GEN_AI_USAGE_OUTPUT_TOKENS,
     Status,
@@ -315,15 +317,62 @@ class LLMStreamingMixin:
                     GEN_AI_RESPONSE_FINISH_REASONS,
                     safe_json_dumps([str(finish_reason)]),
                 )
-            usage = metadata.get("usage") if metadata else None
-            if isinstance(usage, dict):
-                if "prompt_tokens" in usage:
-                    span.set_attribute(
-                        GEN_AI_USAGE_INPUT_TOKENS, int(usage["prompt_tokens"])
+            usage = (
+                (
+                    metadata.get("usage")
+                    if isinstance(metadata, dict)
+                    else getattr(metadata, "usage", None)
+                )
+                if metadata
+                else None
+            )
+            if usage is not None:
+                input_tokens = (
+                    usage.get("prompt_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "prompt_tokens", None)
+                )
+                if input_tokens is None:
+                    input_tokens = (
+                        usage.get("input_tokens")
+                        if isinstance(usage, dict)
+                        else getattr(usage, "input_tokens", None)
                     )
-                if "completion_tokens" in usage:
+                if input_tokens is not None:
+                    span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, int(input_tokens))
+
+                output_tokens = (
+                    usage.get("completion_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "completion_tokens", None)
+                )
+                if output_tokens is None:
+                    output_tokens = (
+                        usage.get("output_tokens")
+                        if isinstance(usage, dict)
+                        else getattr(usage, "output_tokens", None)
+                    )
+                if output_tokens is not None:
+                    span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, int(output_tokens))
+
+                cache_creation = (
+                    usage.get("cache_creation_input_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "cache_creation_input_tokens", None)
+                )
+                if cache_creation is not None:
                     span.set_attribute(
-                        GEN_AI_USAGE_OUTPUT_TOKENS, int(usage["completion_tokens"])
+                        GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, int(cache_creation)
+                    )
+
+                cache_read = (
+                    usage.get("cache_read_input_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "cache_read_input_tokens", None)
+                )
+                if cache_read is not None:
+                    span.set_attribute(
+                        GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, int(cache_read)
                     )
         except Exception as exc:  # noqa: BLE001 - never break the stream
             logger.debug("LLMWrapper streaming attribute set failed: %s", exc)

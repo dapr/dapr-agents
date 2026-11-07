@@ -514,11 +514,25 @@ class LLMWrapper(LLMStreamingMixin):
                 if isinstance(usage, dict)
                 else getattr(usage, "prompt_tokens", None)
             )
+            if input_tokens is None:
+                input_tokens = (
+                    usage.get("input_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "input_tokens", None)
+                )
+
             output_tokens = (
                 usage.get("completion_tokens")
                 if isinstance(usage, dict)
                 else getattr(usage, "completion_tokens", None)
             )
+            if output_tokens is None:
+                output_tokens = (
+                    usage.get("output_tokens")
+                    if isinstance(usage, dict)
+                    else getattr(usage, "output_tokens", None)
+                )
+
             if input_tokens is not None:
                 span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
             if output_tokens is not None:
