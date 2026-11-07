@@ -439,11 +439,15 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     attributes = {}
 
     try:
+        usage = None
         if isinstance(metadata, dict) and "usage" in metadata:
             usage = metadata["usage"]
-            attributes.update(extract_usage_from_dict(usage))
         elif hasattr(metadata, "usage"):
             usage = metadata.usage
+
+        if isinstance(usage, dict):
+            attributes.update(extract_usage_from_dict(usage))
+        elif usage is not None:
             attributes.update(extract_usage_from_object(usage))
     except Exception as e:
         logger.debug(f"Could not extract token counts: {e}")
@@ -456,8 +460,12 @@ def extract_usage_from_dict(usage: Dict[str, Any]) -> Dict[str, Any]:
     attributes = {}
     if "prompt_tokens" in usage:
         attributes[LLM_TOKEN_COUNT_PROMPT] = usage["prompt_tokens"]
+    elif "input_tokens" in usage:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = usage["input_tokens"]
     if "completion_tokens" in usage:
         attributes[LLM_TOKEN_COUNT_COMPLETION] = usage["completion_tokens"]
+    elif "output_tokens" in usage:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage["output_tokens"]
     if "total_tokens" in usage:
         attributes[LLM_TOKEN_COUNT_TOTAL] = usage["total_tokens"]
     return attributes
@@ -468,8 +476,12 @@ def extract_usage_from_object(usage: Any) -> Dict[str, Any]:
     attributes = {}
     if hasattr(usage, "prompt_tokens"):
         attributes[LLM_TOKEN_COUNT_PROMPT] = usage.prompt_tokens
+    elif hasattr(usage, "input_tokens"):
+        attributes[LLM_TOKEN_COUNT_PROMPT] = usage.input_tokens
     if hasattr(usage, "completion_tokens"):
         attributes[LLM_TOKEN_COUNT_COMPLETION] = usage.completion_tokens
+    elif hasattr(usage, "output_tokens"):
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage.output_tokens
     if hasattr(usage, "total_tokens"):
         attributes[LLM_TOKEN_COUNT_TOTAL] = usage.total_tokens
     return attributes
