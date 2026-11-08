@@ -13,7 +13,7 @@
 
 import logging
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, Optional, Type, Union
+from typing import Any, Callable, Dict, Optional, Type, Union, get_type_hints
 
 from mcp.types import Tool as MCPTool
 from pydantic import BaseModel, Field, create_model
@@ -91,12 +91,17 @@ class ToolHelper:
             Type[BaseModel]: A Pydantic model representing the function's parameters.
         """
         sig = signature(func)
-        fields = {}
+        try:
+            type_hints = get_type_hints(func)
+        except Exception:
+            type_hints = {}
+        fields: Dict[str, Any] = {}
         has_type_hints = False
 
         for param_name, param in sig.parameters.items():
-            field_type = (
-                param.annotation if param.annotation != Parameter.empty else str
+            field_type = type_hints.get(
+                param_name,
+                param.annotation if param.annotation != Parameter.empty else str,
             )
             has_type_hints = has_type_hints or param.annotation != Parameter.empty
             fields[param_name] = (
@@ -112,9 +117,11 @@ class ToolHelper:
                 f"No type hints provided for function '{func.__name__}'. Defaulting to 'str'."
             )
         return (
-            create_model(model_name, **fields)
+            create_model(model_name, __module__=func.__module__, **fields)
             if fields
-            else create_model(model_name, __base__=BaseModel)
+            else create_model(
+                model_name, __base__=BaseModel, __module__=func.__module__
+            )
         )
 
     @staticmethod
