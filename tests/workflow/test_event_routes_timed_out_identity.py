@@ -308,3 +308,21 @@ def test_tracked_raise_records_resolved_identity():
     finally:
         gate.release.set()
         dispatcher.close()
+
+
+def test_composite_key_collision_is_delivered_normally(caplog):
+    # A tracked raise whose identity differs from the message under the same key
+    # (a collision) must not decide the outcome, even under ``python -O``.
+    gate, dispatcher = _setup()
+    assert _send(dispatcher, {"wf_id": "wf-1"}) == "retry"
+    _settle(gate, dispatcher)
+    timed_out = dispatcher._topic_states[_TOPIC].timed_out
+    [(key, tracked)] = list(timed_out._settled.items())
+    timed_out._settled[key] = TrackedRaise(
+        identity=_identity(instance_id="wf-other"), future=tracked.future
+    )
+    with caplog.at_level(logging.ERROR):
+        assert _send(dispatcher, {"wf_id": "wf-1"}) == "success"
+    assert "composite key collision" in caplog.text
+    assert [c["instance_id"] for c in gate.calls] == ["wf-1", "wf-1"]
+    dispatcher.close()

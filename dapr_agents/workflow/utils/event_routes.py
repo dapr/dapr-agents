@@ -609,7 +609,16 @@ class WorkflowEventDispatcher:
         if tracked is None:
             return None
         # The composite key includes the identity, so a match is the same message.
-        assert tracked.identity == resolved.identity(), "composite key collision"
+        # Checked explicitly (not with assert, which ``python -O`` strips): a
+        # collision must never let one message reuse another's raise outcome.
+        if tracked.identity != resolved.identity():
+            logger.error(
+                "Event route %r: composite key collision for message id=%r; "
+                "ignoring the tracked raise and delivering normally.",
+                ctx.route_name,
+                ctx.event_id,
+            )
+            return None
         if not tracked.future.done():
             logger.info(
                 "Event route %r: an earlier raise of event %r on workflow %r for "
