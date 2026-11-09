@@ -259,6 +259,18 @@ class WorkflowEventRouteSpec:
     ``event_name_from``, ``data_from``) and payload serialization run on the
     consumer thread without a deadline, so keep them cheap.
 
+    Throughput: a topic with an event route is handled synchronously on that
+    topic's consumer thread in every delivery mode (``delivery_mode="async"``
+    included), one message at a time. The thread waits for each hook (up to
+    ``hook_timeout_seconds`` each) and for the state check and the raise (up
+    to ``call_timeout_seconds`` each), so in the worst case one message holds
+    the topic for three hook timeouts plus two call timeouts (about 75 s with
+    the defaults). Event routes are meant for signalling workflows, such as
+    completion or approval messages, not for high-volume streams. For a busy
+    topic keep hooks cheap, lower both timeouts, or spread the traffic over
+    several topics; other topics have their own consumer threads and are not
+    held up.
+
     Frozen on purpose: value equality is used to detect an idempotent
     re-registration of the same route.
 

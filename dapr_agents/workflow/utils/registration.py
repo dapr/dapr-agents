@@ -530,7 +530,9 @@ def register_message_routes(
             no other route.
         loop: Event loop used to await async work (required for `delivery_mode="async"`).
         delivery_mode: `"sync"` blocks the Dapr thread; `"async"` enqueues onto a worker queue.
-            Workflow event routes are always handled synchronously.
+            Workflow event routes are always handled synchronously, one message at
+            a time on the topic's consumer thread (see `WorkflowEventRouteSpec`,
+            Throughput).
         queue_maxsize: Max in-flight messages when `delivery_mode="async"`.
         deduper: Optional idempotency backend keyed by CloudEvent id/hash. Applies to
             schedule routes only. Workflow event routes dedupe by default with their
