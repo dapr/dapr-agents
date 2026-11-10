@@ -350,6 +350,9 @@ class TestSequentialToolDispatch:
         ]
         mock_workflow_context.current_utc_datetime.isoformat.side_effect = [
             "llm-time",
+            # Child instance IDs are derived from the orchestration time.
+            "first-child-id-time",
+            "second-child-id-time",
             "first-child-time",
             "second-child-time",
         ]
