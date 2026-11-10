@@ -129,6 +129,9 @@ def _run_agent_turn(
     next(gen)  # record_initial_entry
     gen.send(None)  # call_llm
     gen.send({"role": "assistant", "content": None, "tool_calls": tool_calls})
+    # Sequential mode dispatches each child only after the previous one returns.
+    for i in range(len(tool_calls) - 1):
+        gen.send(f"result {i}")
     gen.close()
     return ctx
 
@@ -450,11 +453,12 @@ def test_tool_call_meta_lines_up_with_results_across_branches(mock_llm):
     next(gen)  # record_initial_entry
     gen.send(None)  # call_llm
     gen.send({"role": "assistant", "content": None, "tool_calls": calls})
-    gen.send("sam first")  # child workflow for calls[2]
-    gen.send("sam mutated")  # child workflow for calls[4]
+    # Sequential mode dispatches in call order.
     gen.send(  # run_tool activity for calls[1]
         {"role": "tool", "name": "Lookup", "tool_call_id": "", "content": "run"}
     )
+    gen.send("sam first")  # child workflow for calls[2]
+    gen.send("sam mutated")  # child workflow for calls[4]
     gen.close()
     (save,) = [
         c.kwargs["input"]
