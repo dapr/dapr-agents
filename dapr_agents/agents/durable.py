@@ -21,6 +21,9 @@ import json
 import threading
 import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
+import grpc
+from cachetools import LRUCache
 from os import getenv
 from dapr_agents.tool.utils.function_calling import sanitize_openai_tool_name
 import dapr.ext.workflow as wf
@@ -67,6 +70,7 @@ from dapr_agents.agents.configs import (
     WorkflowRetryPolicy,
     AgentObservabilityConfig,
 )
+from dapr_agents.agents.conversation import Transcript, fold_conversation
 from dapr_agents.agents.prompting import AgentProfileConfig
 from dapr_agents.agents.schemas import (
     AgentWorkflowMessage,
@@ -99,6 +103,7 @@ from dapr_agents.types import (
     AgentError,
     DaprWorkflowStatus,
     LLMChatResponse,
+    MessageContent,
     UserMessage,
     ToolMessage,
     AssistantMessage,
@@ -138,8 +143,18 @@ from dapr_agents.hooks import (
     ToolHookContext,
 )
 from dapr_agents.tool.mcp.dapr_workflow_client import mcp_tool_def_to_workflow_tool
+from dapr_agents.types.exceptions import DaprRuntimeVersionNotSupportedError
+from dapr_agents.utils import is_version_supported
 
 logger = get_context_aware_logger(__name__)
+
+# Fresh runs record this patch and take the history-derived conversation;
+# runs that started before it keep the state-store record. Never rename it.
+_HISTORY_CONVERSATION_PATCH = "history-conversation"
+
+# ponytail: bounded by instance count, not bytes. A miss only costs one
+# history fetch, so lower it (or add a byte budget) if conversations are large.
+_CONVERSATION_CACHE_SIZE = 256
 
 
 def _get_framework_from_registry(
@@ -447,6 +462,14 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         )
         self._wf_client_lock = threading.Lock()
 
+        # Conversation per workflow instance, as the last call_llm on this
+        # worker left it, tagged with the execution that left it. See
+        # dapr_agents.agents.conversation.
+        self._conversations: LRUCache[
+            str, Tuple[Optional[str], List[Dict[str, Any]]]
+        ] = LRUCache(maxsize=_CONVERSATION_CACHE_SIZE)
+        self._conversations_lock = threading.Lock()
+
         # Per-session listener cache, keyed by (instance_id, cfg_hash).
         # Only cacheable listener types (pub/sub + webhook) land here —
         # in-process listeners are cheap to build and tied to a specific
@@ -593,6 +616,564 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         Raises:
             AgentError: If the loop finishes without producing a final response.
         """
+        # Runs that started before this patch replay on the old body. Keep this
+        # check after the old body is deleted: removing it stalls every run that
+        # recorded the patch. See docs/development/README.md, "Changing workflow code".
+        if not ctx.is_patched(_HISTORY_CONVERSATION_PATCH):
+            return (yield from self._agent_workflow_legacy(ctx, message))
+        task = message.get("task")
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
+
+        # Propagate OTel/parent workflow relations if present.
+        otel_span_context = message.get("_otel_span_context")
+        if "workflow_instance_id" in message:
+            metadata["triggering_workflow_instance_id"] = message[
+                "workflow_instance_id"
+            ]
+
+        trigger_instance_id = metadata.get("triggering_workflow_instance_id")
+        source = metadata.get("source") or "direct"
+
+        logger.info(f"Initial message from {source} -> {self.name}")
+
+        # Resolve streaming context for this workflow instance. The root
+        # synthesizes from an inbound ``_stream_listener_config``; children
+        # inherit the parent's ``_stream_context`` and extend call_path.
+        stream_ctx = self._resolve_stream_context(
+            metadata=metadata,
+            instance_id=ctx.instance_id,
+            otel_span_context=otel_span_context,
+        )
+
+        # Discover is_tool=True agents from registry and resolve any string-named tools.
+        if self.registry:
+            yield ctx.call_activity(
+                self._activity_name(self.load_tools),
+                retry_policy=self._retry_policy,
+            )
+
+        final_message: Dict[str, Any] = {}
+        turn = 0
+        _workflow_exc: Optional[Exception] = None
+        transcript = Transcript(execution=ctx.current_utc_datetime.isoformat())
+        if task:
+            transcript.add({"role": "user", "content": task})
+
+        try:
+            # Delegate to orchestration workflow if this agent is an orchestrator
+            if self._orchestration_strategy:
+                logger.info(
+                    "Agent %s delegating to orchestration_workflow (instance=%s)",
+                    self.name,
+                    ctx.instance_id,
+                )
+
+                orch_input: Dict[str, Any] = {
+                    "task": task,
+                    "instance_id": ctx.instance_id,
+                    "triggering_workflow_instance_id": trigger_instance_id,
+                    "start_time": ctx.current_utc_datetime.isoformat(),
+                }
+                if stream_ctx:
+                    orch_input[MESSAGE_METADATA] = {STREAM_CONTEXT: stream_ctx}
+                final_message = yield ctx.call_child_workflow(
+                    workflow=orchestration_workflow_id(self.name, infra=self._infra),
+                    input=orch_input,
+                    retry_policy=self._retry_policy,
+                )
+
+                logger.info(
+                    "Orchestration workflow completed (instance=%s)",
+                    ctx.instance_id,
+                )
+
+            # Delegate to an AgentExecutorBase (stateful agent runtime) if one is
+            # attached. The executor owns the tool/reasoning loop; we drive its
+            # event stream in run_executor and run tool approvals here.
+            elif self.executor is not None:
+                final_message = yield from self._executor_workflow(
+                    ctx,
+                    task=task,
+                    source=source,
+                    message=message,
+                    stream_context=stream_ctx,
+                )
+
+            # Standard agent execution loop
+            else:
+                for turn in range(1, self.execution.max_iterations + 1):
+                    logger.debug(
+                        "Agent %s turn %d/%d (instance=%s)",
+                        self.name,
+                        turn,
+                        self.execution.max_iterations,
+                        ctx.instance_id,
+                    )
+
+                    assistant_response: Dict[str, Any] = yield from self._call_llm_step(
+                        ctx,
+                        transcript,
+                        {
+                            "instance_id": ctx.instance_id,
+                            "time": ctx.current_utc_datetime.isoformat(),
+                            "source": source,
+                            "turn": turn,
+                            "stream_context": stream_ctx,
+                        },
+                    )
+                    tool_calls = assistant_response.get("tool_calls") or []
+                    if tool_calls:
+                        logger.debug(
+                            "Agent %s executing %d tool call(s) on turn %d",
+                            self.name,
+                            len(tool_calls),
+                            turn,
+                        )
+
+                        # hook pass: run before_tool_call for every tool in this turn and collect decisions before dispatching anything.
+                        # Keyed by position: tool_call_id can be "" or repeated.
+                        # Upgrade note: before this keying, calls sharing a tool_call_id
+                        # with mixed decisions were dispatched differently. A run paused
+                        # inside such a turn across the upgrade replays different
+                        # activities and can fail with a non-determinism error; drain or
+                        # restart those runs before upgrading.
+                        hook_decisions: Dict[int, HookDecision] = {}
+                        if self._hooks and self._hooks.before_tool_call:
+                            for idx, tc in enumerate(tool_calls):
+                                fn_name_check = tc["function"]["name"]
+                                tool_obj_check = self.tool_executor.get_tool(
+                                    fn_name_check
+                                )
+                                raw_args_check = tc["function"].get("arguments", "")
+                                try:
+                                    hook_payload = (
+                                        json.loads(raw_args_check)
+                                        if raw_args_check
+                                        else {}
+                                    )
+                                except json.JSONDecodeError:
+                                    hook_payload = {}
+                                hook_ctx = ToolHookContext(
+                                    step_name=fn_name_check,
+                                    source=getattr(tool_obj_check, "source", "local"),
+                                    payload=hook_payload,
+                                    tool_call_id=tc["id"],
+                                )
+                                decision = None
+                                for hook in self._hooks.before_tool_call:
+                                    result = hook(hook_ctx)
+                                    if result is not None and not isinstance(
+                                        result, Proceed
+                                    ):
+                                        decision = result
+                                        break
+                                if decision is None or isinstance(decision, Proceed):
+                                    pass  # no-op, tool runs normally
+                                elif isinstance(decision, RequireApproval):
+                                    # suspend here and wait for human; convert outcome to Deny or Proceed
+                                    approved = yield from self._request_approval(
+                                        ctx, ctx.instance_id, tc, decision
+                                    )
+                                    hook_decisions[idx] = (
+                                        Proceed()
+                                        if approved
+                                        else Deny(
+                                            reason="approval was not granted or timed out"
+                                        )
+                                    )
+                                    logger.debug(
+                                        f"RequireApproval for tool '{fn_name_check}': {'approved' if approved else 'not approved'} (instance={ctx.instance_id})"
+                                    )
+                                else:
+                                    hook_decisions[idx] = decision
+
+                        ordered: List[Optional[Dict[str, Any]]] = [None] * len(
+                            tool_calls
+                        )
+
+                        workflow_tasks: List[Any] = []
+                        workflow_meta: List[Dict[str, Any]] = []
+                        activity_tasks: List[Any] = []
+                        activity_meta: List[Dict[str, Any]] = []
+                        generator_tools: List[Any] = []
+                        generator_meta: List[Dict[str, Any]] = []
+
+                        for idx, tc in enumerate(tool_calls):
+                            fn_name = tc["function"]["name"]
+
+                            # check hook decisions for this tool call
+                            hook_decision = hook_decisions.get(idx)
+
+                            if isinstance(hook_decision, Deny):
+                                # hook blocked the tool outright — synthesize a denial message
+                                block_reason = (
+                                    hook_decision.reason or "blocked by policy"
+                                )
+                                denial_msg = ToolMessage(
+                                    content=f"Tool '{fn_name}' was not executed: {block_reason}.",
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = denial_msg.model_dump()
+                                logger.info(
+                                    f"Skipping tool '{fn_name}': {block_reason} (instance={ctx.instance_id})"
+                                )
+                                continue
+
+                            if isinstance(hook_decision, Skip):
+                                # hook provided a result — use it directly without running the tool
+                                skip_content = (
+                                    str(hook_decision.result)
+                                    if hook_decision.result is not None
+                                    else f"Tool '{fn_name}' was skipped."
+                                )
+                                skip_msg = ToolMessage(
+                                    content=skip_content,
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[idx] = skip_msg.model_dump()
+                                logger.info(
+                                    f"Skipping tool '{fn_name}' with hook-provided result (instance={ctx.instance_id})"
+                                )
+                                continue
+
+                            if (
+                                isinstance(hook_decision, Mutate)
+                                and hook_decision.payload is not None
+                            ):
+                                # hook mutated the arguments — rebuild tc with new payload
+                                tc = {
+                                    **tc,
+                                    "function": {
+                                        **tc.get("function", {}),
+                                        "arguments": json.dumps(hook_decision.payload),
+                                    },
+                                }
+
+                            tool_obj = self.tool_executor.get_tool(fn_name)
+
+                            # ask_user only works when the session has a live stream
+                            # channel: it emits USER_INPUT_REQUESTED on the stream and
+                            # then suspends on an external event. With no stream_ctx
+                            # (e.g. a non-streaming pub/sub session) the prompt reaches
+                            # no UI and the workflow would hang until the timeout
+                            # sentinel (~600s). Short-circuit at call time with a clear
+                            # result instead of dispatching into that dead end.
+                            if fn_name == ASK_USER_TOOL_NAME and not stream_ctx:
+                                ordered[idx] = ToolMessage(
+                                    content=(
+                                        "ask_user is unavailable for this run: there is no "
+                                        "interactive input channel (this session is not "
+                                        "streaming). Continue without user input."
+                                    ),
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                ).model_dump()
+                                logger.info(
+                                    "Skipping ask_user for '%s': session has no stream "
+                                    "channel (instance=%s)",
+                                    fn_name,
+                                    ctx.instance_id,
+                                )
+                                continue
+
+                            # WorkflowContextInjectedTool instances get executed inline as workflow tasks so they can receive the workflow context.
+                            # They must be executed in the workflow to have access to the ctx to call ctx.call_child_workflow,
+                            # and cannot be ran within an activity bc activities do not have the workflow context.
+                            if tool_obj and isinstance(
+                                tool_obj, WorkflowContextInjectedTool
+                            ):
+                                raw_args = tc["function"].get("arguments", "")
+                                try:
+                                    args = json.loads(raw_args) if raw_args else {}
+                                except json.JSONDecodeError as exc:
+                                    raise AgentError(
+                                        f"Failed to decode tool arguments for '{fn_name}': {exc}"
+                                    ) from exc
+                                # Only pass _child_instance_id for AgentWorkflowTool instances
+                                # (agent-as-tool calls), not for other WorkflowContextInjectedTool types
+                                call_kwargs = {
+                                    "ctx": ctx,
+                                    "_source_agent": self.name,
+                                    **args,
+                                }
+                                # ask_user publishes its prompt on the session
+                                # stream. Only it gets the context: MCP tools take
+                                # **kwargs and would forward it as arguments.
+                                if fn_name == ASK_USER_TOOL_NAME:
+                                    call_kwargs["_stream_context"] = stream_ctx
+                                if isinstance(tool_obj, AgentWorkflowTool):
+                                    child_instance_id = str(uuid.uuid4())
+                                    call_kwargs["_child_instance_id"] = (
+                                        child_instance_id
+                                    )
+                                    if stream_ctx:
+                                        child_stream_ctx = dict(stream_ctx)
+                                        child_stream_ctx["parent_agent"] = self.name
+                                        child_stream_ctx["parent_instance_id"] = (
+                                            ctx.instance_id
+                                        )
+                                        child_stream_ctx["depth"] = (
+                                            int(stream_ctx.get("depth", 0)) + 1
+                                        )
+                                        call_kwargs[
+                                            "_stream_context"
+                                        ] = (  # kwarg name, not metadata key
+                                            child_stream_ctx
+                                        )
+                                    workflow_meta.append(
+                                        {
+                                            "order": idx,
+                                            "tool_call": tc,
+                                            "child_instance_id": child_instance_id,
+                                        }
+                                    )
+                                    workflow_tasks.append(tool_obj(**call_kwargs))
+                                else:
+                                    # Non-agent context-injected tool. Calling it
+                                    # returns either a Dapr workflow Task or a
+                                    # generator (e.g. the built-in ask_user, whose
+                                    # body yields workflow operations). A generator
+                                    # must be driven inline with `yield from` and
+                                    # cannot be scheduled into when_all, so route it
+                                    # to a separate bucket.
+                                    produced = tool_obj(**call_kwargs)
+                                    if inspect.isgenerator(produced):
+                                        generator_meta.append(
+                                            {"order": idx, "tool_call": tc}
+                                        )
+                                        generator_tools.append(produced)
+                                    else:
+                                        workflow_meta.append(
+                                            {"order": idx, "tool_call": tc}
+                                        )
+                                        workflow_tasks.append(produced)
+                            # Invoke and execute regular tools.
+                            else:
+                                activity_tasks.append(
+                                    ctx.call_activity(
+                                        self._activity_name(self.run_tool),
+                                        input={
+                                            "tool_call": tc,
+                                            "instance_id": ctx.instance_id,
+                                            "time": ctx.current_utc_datetime.isoformat(),
+                                            "order": idx,
+                                        },
+                                        retry_policy=self._retry_policy,
+                                    )
+                                )
+                                activity_meta.append({"order": idx, "tool_call": tc})
+
+                        all_tasks = workflow_tasks + activity_tasks
+
+                        # Emit TURN_PAUSED before dispatching agent-as-tool
+                        # calls so UIs know this agent is waiting on child
+                        # workflows. The paired TURN_RESUMED is emitted
+                        # after the fan-out yield below. Note: this is
+                        # intentionally the child-agent split only — pure
+                        # tool runs don't pause the agent visually.
+                        child_agent_dispatches = [
+                            m for m in workflow_meta if m.get("child_instance_id")
+                        ]
+                        if stream_ctx and child_agent_dispatches:
+                            yield ctx.call_activity(
+                                self._activity_name(self.publish_stream_event),
+                                input={
+                                    "stream_context": stream_ctx,
+                                    "instance_id": ctx.instance_id,
+                                    "event_type": "turn_paused",
+                                    "turn": turn,
+                                    "event_data": {
+                                        "reason": "child_agent_dispatch",
+                                        "children": [
+                                            {
+                                                "child_agent": m["tool_call"][
+                                                    "function"
+                                                ]["name"],
+                                                "child_instance_id": m[
+                                                    "child_instance_id"
+                                                ],
+                                            }
+                                            for m in child_agent_dispatches
+                                        ],
+                                    },
+                                },
+                                retry_policy=self._retry_policy,
+                            )
+
+                        if not all_tasks:
+                            results: List[Any] = []
+                        elif (
+                            self.execution.tool_execution_mode
+                            == ToolExecutionMode.SEQUENTIAL
+                        ):
+                            results: List[Any] = []
+                            for tool_task in all_tasks:
+                                results.append((yield tool_task))
+                        else:
+                            results: List[Any] = yield wf.when_all(all_tasks)
+
+                        if stream_ctx and child_agent_dispatches:
+                            yield ctx.call_activity(
+                                self._activity_name(self.publish_stream_event),
+                                input={
+                                    "stream_context": stream_ctx,
+                                    "instance_id": ctx.instance_id,
+                                    "event_type": "turn_resumed",
+                                    "turn": turn,
+                                    "event_data": {
+                                        "children": [
+                                            {
+                                                "child_agent": m["tool_call"][
+                                                    "function"
+                                                ]["name"],
+                                                "child_instance_id": m[
+                                                    "child_instance_id"
+                                                ],
+                                            }
+                                            for m in child_agent_dispatches
+                                        ],
+                                    },
+                                },
+                                retry_policy=self._retry_policy,
+                            )
+
+                        for meta, res in zip(
+                            workflow_meta, results[: len(workflow_tasks)]
+                        ):
+                            tc = meta["tool_call"]
+                            fn_name = tc["function"]["name"]
+                            serialized = serialize_tool_result(res)
+                            tool_msg = ToolMessage(
+                                content=serialized,
+                                role="tool",
+                                name=fn_name,
+                                tool_call_id=tc["id"],
+                            )
+                            ordered[meta["order"]] = tool_msg.model_dump()
+
+                        for meta, res in zip(
+                            activity_meta, results[len(workflow_tasks) :]
+                        ):
+                            ordered[meta["order"]] = res
+
+                        # Drive generator-bodied workflow tools (e.g. ask_user)
+                        # inline. They yield workflow operations and return a
+                        # result; they must be advanced with `yield from`, not
+                        # scheduled into when_all.
+                        for gmeta, gen in zip(generator_meta, generator_tools):
+                            gen_result = yield from gen
+                            tc_g = gmeta["tool_call"]
+                            ordered[gmeta["order"]] = ToolMessage(
+                                content=serialize_tool_result(gen_result),
+                                role="tool",
+                                name=tc_g["function"]["name"],
+                                tool_call_id=tc_g["id"],
+                            ).model_dump()
+
+                        # Every tool call of the turn gets exactly one reply, in call
+                        # order; the next call_llm carries them as its new messages.
+                        transcript.add(*(tr for tr in ordered if tr is not None))
+                        continue
+
+                    final_message = assistant_response
+                    logger.debug(
+                        f"Agent {self.name} produced final response on turn {turn} (instance={ctx.instance_id})",
+                    )
+                    break
+                else:
+                    # Loop exhausted without a terminating reply → surface a friendly notice.
+                    base = final_message.get("content") or ""
+                    if base:
+                        base = base.rstrip() + "\n\n"
+                    base += (
+                        "I reached the maximum number of reasoning steps before I could finish. "
+                        "Please rephrase or provide more detail so I can try again."
+                    )
+                    final_message = {"role": "assistant", "content": base}
+                    logger.warning(
+                        f"Agent {self.name} hit max iterations ({self.execution.max_iterations}) without a final response (instance={ctx.instance_id})",
+                    )
+
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(f"Agent {self.name} workflow failed: {exc}")
+            _workflow_exc = exc
+            final_message = {"role": "assistant", "content": f"Error: {str(exc)}"}
+
+        # Orchestrators broadcast the final message to the team for context sharing.
+        # Non-orchestrators with broadcast_topic_name are subscribers only.
+        if self.broadcast_topic_name and self.orchestrator:
+            yield ctx.call_activity(
+                self._activity_name(self.broadcast_to_team),
+                input={"message": final_message},
+                retry_policy=self._retry_policy,
+            )
+
+        # Orchestrators summarize in orchestration_workflow, where the LLM calls ran.
+        if (
+            self.memory is not None
+            and self._memory.summarize_on_completion
+            and not self._orchestration_strategy
+        ):
+            yield ctx.call_activity(
+                self._activity_name(self.summarize),
+                input={"instance_id": ctx.instance_id, **transcript.payload()},
+                retry_policy=self._retry_policy,
+            )
+
+        yield ctx.call_activity(
+            self._activity_name(self.finalize_workflow),
+            input={
+                "instance_id": ctx.instance_id,
+                "final_message": final_message,
+                "stream_context": stream_ctx,
+            },
+            retry_policy=self._retry_policy,
+        )
+
+        if _workflow_exc is not None:
+            verdict = DaprWorkflowStatus.FAILED
+        elif turn == self.execution.max_iterations:
+            ctx.set_custom_status("max_iterations_reached")
+            logger.info(
+                "Workflow reached max iterations without final response (instance=%s)",
+                ctx.instance_id,
+            )
+            verdict = DaprWorkflowStatus.COMPLETED
+        else:
+            verdict = DaprWorkflowStatus.COMPLETED
+        logger.info(
+            "Workflow %s finalized for agent %s with verdict=%s",
+            ctx.instance_id,
+            self.name,
+            verdict,
+        )
+
+        if _workflow_exc is not None:
+            raise AgentError(
+                f"Agent {self.name} workflow failed: {_workflow_exc}"
+            ) from _workflow_exc
+
+        return final_message
+
+    def _agent_workflow_legacy(self, ctx: wf.DaprWorkflowContext, message: dict):
+        """
+        Primary workflow loop reacting to `TriggerAction` pub/sub messages.
+
+        Args:
+            ctx: Dapr workflow context injected by the runtime.
+            message: Trigger payload; may include task string and metadata.
+
+        Returns:
+            Final assistant message as a dict.
+
+        Raises:
+            AgentError: If the loop finishes without producing a final response.
+        """
         task = message.get("task")
         metadata = message.get(MESSAGE_METADATA, {}) or {}
 
@@ -673,7 +1254,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # attached. The executor owns the tool/reasoning loop; we drive its
             # event stream in run_executor and run tool approvals here.
             elif self.executor is not None:
-                final_message = yield from self._executor_workflow(
+                final_message = yield from self._executor_workflow_legacy(
                     ctx, task=task, source=source, message=message
                 )
 
@@ -1198,6 +1779,35 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         return final_message
 
     # human-in-the-loop helpers
+    def _call_llm_step(
+        self,
+        ctx: wf.DaprWorkflowContext,
+        transcript: Transcript,
+        payload: Dict[str, Any],
+        prompt: Optional[str] = None,
+    ):
+        """
+        Run ``call_llm`` on the conversation so far; ``yield from`` it.
+
+        Args:
+            ctx: Workflow context.
+            transcript: The workflow's conversation cursor, advanced on return.
+            payload: ``call_llm`` input besides the conversation keys.
+            prompt: Optional user message to add before the call.
+
+        Returns:
+            The assistant message.
+        """
+        if prompt is not None:
+            transcript.add({"role": "user", "content": prompt})
+        response: Dict[str, Any] = yield ctx.call_activity(
+            self._activity_name(self.call_llm),
+            input={**payload, **transcript.payload()},
+            retry_policy=self._retry_policy,
+        )
+        transcript.advance(response)
+        return response
+
     def _request_approval(
         self,
         ctx: wf.DaprWorkflowContext,
@@ -1338,6 +1948,515 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         return response.approved, response.reason
 
     def orchestration_workflow(self, ctx: wf.DaprWorkflowContext, message: dict):
+        """Dedicated orchestration workflow using strategy pattern.
+
+        This is an internal workflow called via call_child_workflow from agent_workflow.
+
+        Args:
+            ctx: Dapr workflow context
+            message: Input dict with task, instance_id, triggering_workflow_instance_id, start_time
+
+        Returns:
+            Final message dict to be returned to caller
+        """
+        # Runs that started before this patch replay on the old body. Keep this
+        # check after the old body is deleted: removing it stalls every run that
+        # recorded the patch. See docs/development/README.md, "Changing workflow code".
+        if not ctx.is_patched(_HISTORY_CONVERSATION_PATCH):
+            return (yield from self._orchestration_workflow_legacy(ctx, message))
+        task = message.get("task")
+        instance_id = message.get("instance_id")
+        metadata = message.get(MESSAGE_METADATA, {}) or {}
+        stream_ctx = metadata.get(STREAM_CONTEXT)
+
+        logger.info(
+            f"Orchestration workflow started for instance {instance_id} with task: {task}"
+        )
+
+        agents_result = yield ctx.call_activity(
+            self._activity_name(self.get_team_members),
+            retry_policy=self._retry_policy,
+        )
+        transcript = Transcript(execution=ctx.current_utc_datetime.isoformat())
+
+        def llm_input(**extra: Any) -> Dict[str, Any]:
+            return {
+                "instance_id": instance_id,
+                "time": ctx.current_utc_datetime.isoformat(),
+                "stream_context": stream_ctx,
+                **extra,
+            }
+
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            agents_formatted = agents_result["formatted"]
+            plan_prompt = TASK_PLANNING_PROMPT.format(
+                task=task, agents=agents_formatted, plan_schema=schemas.plan
+            )
+            init_response = yield from self._call_llm_step(
+                ctx,
+                transcript,
+                llm_input(
+                    response_format="IterablePlanStep", **{STREAM_PHASE: "planning"}
+                ),
+                prompt=plan_prompt,
+            )
+
+            content = init_response.get("content", "{}")
+            try:
+                parsed_content = json.loads(content)
+                plan = parsed_content.get("objects", [])
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse LLM response content: {e}")
+                plan = []
+
+            logger.info(f"Received plan from initialization with {len(plan)} steps")
+
+            plan_content = json.dumps({"objects": plan}, indent=2)
+            plan_message = {
+                "role": "assistant",
+                "name": self.name,
+                "content": plan_content,
+            }
+
+            yield ctx.call_activity(
+                self._activity_name(self.save_plan),
+                input={
+                    "instance_id": instance_id,
+                    "plan_message": plan_message,
+                    "history_len": transcript.length,
+                    "time": ctx.current_utc_datetime.isoformat(),
+                },
+                retry_policy=self._retry_policy,
+            )
+            transcript.add(plan_message)
+
+            orch_state = {
+                "task": task,
+                "agents": agents_formatted,
+                "agents_metadata": agents_result["metadata"],
+                "plan": plan,
+                "task_history": [],
+                "verdict": None,
+            }
+        else:
+            agents_metadata = agents_result["metadata"]
+            orch_state = yield ctx.call_activity(
+                self._activity_name(self.initialize_orchestration),
+                input={
+                    "task": task,
+                    "agents": agents_metadata,
+                    "instance_id": instance_id,
+                },
+                retry_policy=self._retry_policy,
+            )
+
+            orch_state["agents_metadata"] = agents_metadata
+
+        for turn in range(1, self.execution.max_iterations + 1):
+            logger.debug(
+                f"Orchestration turn {turn}/{self.execution.max_iterations} (instance={instance_id})"
+            )
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                agents_formatted = orch_state.get("agents", "")
+
+                if turn > 1:
+                    logger.info(f"Plan has {len(plan)} steps (turn {turn})")
+
+                    if len(plan) == 0:
+                        raise AgentError(
+                            "No plan available; cannot continue orchestration."
+                        )
+
+                next_step_prompt = NEXT_STEP_PROMPT.format(
+                    task=task,
+                    agents=agents_formatted,
+                    plan=plan,
+                    next_step_schema=schemas.next_step,
+                )
+                next_step_response = yield from self._call_llm_step(
+                    ctx,
+                    transcript,
+                    llm_input(response_format="NextStep", **{STREAM_PHASE: "routing"}),
+                    prompt=next_step_prompt,
+                )
+
+                try:
+                    parsed_content = json.loads(next_step_response.get("content", "{}"))
+                    next_agent = parsed_content.get("next_agent")
+                    instruction = parsed_content.get("instruction")
+                    step_id = parsed_content.get("step")
+                    substep_id = parsed_content.get("substep")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse LLM response content: {e}")
+                    raise AgentError(f"Failed to parse next step from LLM: {e}")
+
+                logger.info(
+                    f"Next step decided: agent={next_agent}, step={step_id}, "
+                    f"substep={substep_id}, instruction={instruction}"
+                )
+
+                is_valid = yield ctx.call_activity(
+                    self._activity_name(self.validate_step),
+                    input={
+                        "instance_id": instance_id,
+                        "plan": self._convert_plan_objects_to_dicts(plan),
+                        "step": step_id,
+                        "substep": substep_id,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                if not is_valid:
+                    logger.warning(
+                        f"Step {step_id}, substep {substep_id} not found in plan; skipping turn"
+                    )
+                    orch_state["verdict"] = "continue"
+                    continue
+
+                action = {
+                    "agent": next_agent,
+                    "instruction": instruction,
+                    "metadata": {"step_id": step_id, "substep_id": substep_id},
+                }
+
+                orch_state["current_step_id"] = step_id
+                orch_state["current_substep_id"] = substep_id
+                orch_state["plan"] = plan
+
+            else:
+                action = yield ctx.call_activity(
+                    self._activity_name(self.select_next_task),
+                    input={"state": orch_state, "turn": turn, "task": task},
+                    retry_policy=self._retry_policy,
+                )
+
+            next_agent = action["agent"]
+            instruction = action["instruction"]
+
+            logger.info(
+                f"Turn {turn}: Selected agent '{next_agent}' with instruction: {instruction[:100]}..."
+            )
+
+            agents_metadata = orch_state.get("agents_metadata") or {}
+            agent_entry = agents_metadata.get(next_agent)
+
+            if agent_entry is None:
+                next_lower = next_agent.lower()
+                for key, meta in agents_metadata.items():
+                    if key.lower() == next_lower:
+                        agent_entry = meta
+                        break
+                    if next_lower in key.lower() or key.lower() in next_lower:
+                        agent_entry = meta
+                        break
+
+            if agent_entry is None:
+                raise AgentError(
+                    f"Agent '{next_agent}' not found in registry. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            agent_meta = agent_entry.get("agent")
+            if agent_meta is None or not isinstance(agent_meta, dict):
+                raise AgentError(
+                    f"Agent '{next_agent}' has invalid agent metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+            agent_appid = agent_entry["agent"]["appid"]
+            agent_type = agent_entry["agent"].get("type", "agents").lower()
+
+            agent_appid = agent_meta.get("appid")
+            if not agent_appid:
+                raise AgentError(
+                    f"Agent '{next_agent}' missing appid in metadata. "
+                    f"Available agents: {list(agents_metadata.keys())}"
+                )
+
+            framework = agent_meta.get("framework")
+
+            child_instance_id = str(uuid.uuid4())
+            agent_workflow_name = (
+                agent_meta.get("metadata", {}).get("workflow_name")
+                if isinstance(agent_meta.get("metadata"), dict)
+                else None
+            )
+            _agent_tool = agent_to_tool(
+                next_agent,
+                description="",
+                agent_type=agent_type,
+                target_app_id=agent_appid,
+                framework=framework,
+                workflow_name=agent_workflow_name,
+            )
+            _agent_tool_kwargs: Dict[str, Any] = {
+                "ctx": ctx,
+                "task": instruction,
+                "_source_agent": self.name,
+                "_child_instance_id": child_instance_id,
+            }
+            if stream_ctx:
+                child_stream_ctx = dict(stream_ctx)
+                child_stream_ctx["parent_agent"] = self.name
+                child_stream_ctx["parent_instance_id"] = ctx.instance_id
+                child_stream_ctx["depth"] = int(stream_ctx.get("depth", 0)) + 1
+                _agent_tool_kwargs["_stream_context"] = child_stream_ctx
+
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "stream_context": stream_ctx,
+                        "instance_id": instance_id,
+                        "event_type": "orchestration_decision",
+                        "event_data": {
+                            "selected_agent": next_agent,
+                            "instruction": instruction,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "stream_context": stream_ctx,
+                        "instance_id": instance_id,
+                        "event_type": "turn_paused",
+                        "event_data": {
+                            "reason": "orchestration_dispatch",
+                            "child_agent": next_agent,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+            try:
+                result = yield _agent_tool(**_agent_tool_kwargs)
+            except Exception as dispatch_exc:
+                # Enrich registration-not-found errors with the dispatch context
+                # so users can tell whether the name, framework, app_id, or
+                # missing sub-agent registration is at fault. We match by class
+                # name + message substring to avoid a hard dependency on
+                # durabletask-client's exception module.
+                exc_name = type(dispatch_exc).__name__
+                exc_msg = str(dispatch_exc)
+                if (
+                    "OrchestratorNotRegisteredError" in exc_name
+                    or "was not registered" in exc_msg
+                ):
+                    raise AgentError(
+                        f"Failed to dispatch to sub-agent '{next_agent}': "
+                        f"{exc_msg}. Dispatch context: framework={framework!r}, "
+                        f"target_app_id={agent_appid!r}, "
+                        f"published_workflow_name={agent_workflow_name!r}. "
+                        f"Verify the target app is running and registered a "
+                        f"workflow whose ID matches what the orchestrator "
+                        f"dispatches. If framework casing or separators "
+                        f"differ across processes, publish "
+                        f"'metadata.workflow_name' from the sub-agent side "
+                        f"to pin the canonical name."
+                    ) from dispatch_exc
+                raise
+            if stream_ctx:
+                yield ctx.call_activity(
+                    self._activity_name(self.publish_stream_event),
+                    input={
+                        "stream_context": stream_ctx,
+                        "instance_id": instance_id,
+                        "event_type": "turn_resumed",
+                        "event_data": {
+                            "child_agent": next_agent,
+                            "child_instance_id": child_instance_id,
+                        },
+                        "phase": "routing",
+                    },
+                    retry_policy=self._retry_policy,
+                )
+            result_content = result.get("content", "")
+            if result_content.startswith("Error:"):
+                raise AgentError(f"Agent '{next_agent}' failed: {result_content}")
+
+            logger.info(
+                f"Turn {turn}: Agent '{next_agent}' responded: {result_content[:100]}..."
+            )
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                step_id = orch_state.get("current_step_id")
+                substep_id = orch_state.get("current_substep_id")
+
+                target = find_step_in_plan(plan, step_id, substep_id)
+                if target:
+                    target["status"] = "completed"
+                plan = update_step_statuses(plan)
+
+                progress_prompt = PROGRESS_CHECK_PROMPT.format(
+                    task=task,
+                    plan=plan,
+                    step=step_id,
+                    substep=substep_id,
+                    results=result.get("content", ""),
+                    progress_check_schema=schemas.progress_check,
+                )
+                progress_response = yield from self._call_llm_step(
+                    ctx,
+                    transcript,
+                    llm_input(
+                        response_format="ProgressCheckOutput",
+                        **{STREAM_PHASE: "evaluating"},
+                    ),
+                    prompt=progress_prompt,
+                )
+
+                progress = yield ctx.call_activity(
+                    self._activity_name(self.evaluate_progress),
+                    input={
+                        "content": progress_response.get("content", ""),
+                        "instance_id": instance_id,
+                        "plan_objects": plan,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                plan = progress["plan"]
+                verdict = progress["verdict"]
+
+                plan_content = json.dumps({"objects": plan}, indent=2)
+                plan_message = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": plan_content,
+                }
+                yield ctx.call_activity(
+                    self._activity_name(self.save_plan),
+                    input={
+                        "instance_id": instance_id,
+                        "plan_message": plan_message,
+                        "history_len": transcript.length,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                    },
+                    retry_policy=self._retry_policy,
+                )
+                transcript.add(plan_message)
+
+                orch_state["plan"] = plan
+                orch_state["verdict"] = verdict
+                orch_state["last_agent"] = next_agent
+                orch_state["last_result"] = result.get("content", "")
+
+            else:
+                process_result = yield ctx.call_activity(
+                    self._activity_name(self.handle_response),
+                    input={
+                        "state": orch_state,
+                        "response": result,
+                        "action": action,
+                        "task": task,
+                    },
+                    retry_policy=self._retry_policy,
+                )
+
+                orch_state = process_result["updated_state"]
+                verdict = process_result.get("verdict", "continue")
+
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                verdict = orch_state.get("verdict", "continue")
+                should_continue = (verdict == "continue") and (
+                    turn < self.execution.max_iterations
+                )
+            else:
+                should_continue = yield ctx.call_activity(
+                    self._activity_name(self.check_completion),
+                    input={"state": orch_state, "turn": turn},
+                    retry_policy=self._retry_policy,
+                )
+
+            if not should_continue:
+                logger.info(f"Orchestration stopping after turn {turn}")
+                break
+
+        if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+            plan = orch_state.get("plan", [])
+            verdict = orch_state.get("verdict", "continue")
+            step_id = orch_state.get("current_step_id")
+            substep_id = orch_state.get("current_substep_id")
+            last_agent = orch_state.get("last_agent", "")
+            last_result = orch_state.get("last_result", "")
+
+            if verdict == "continue":
+                ctx.set_custom_status("max_iterations_reached")
+                verdict = "max_iterations_reached"
+                logger.info(
+                    "Workflow reached max iterations without final response (instance=%s)",
+                    ctx.instance_id,
+                )
+
+            summary_prompt = SUMMARY_GENERATION_PROMPT.format(
+                task=task,
+                verdict=verdict,
+                plan=plan,
+                step=step_id,
+                substep=substep_id,
+                agent=last_agent,
+                result=last_result,
+            )
+            summary_response = yield from self._call_llm_step(
+                ctx,
+                transcript,
+                llm_input(**{STREAM_PHASE: "summarizing"}),
+                prompt=summary_prompt,
+            )
+
+            final_message = {
+                "role": "assistant",
+                "content": summary_response.get("content", "Orchestration completed."),
+                "name": self.name,
+            }
+
+        else:
+            final_message = yield ctx.call_activity(
+                self._activity_name(self.finalize_orchestration),
+                input={"state": orch_state, "task": task, "instance_id": instance_id},
+                retry_policy=self._retry_policy,
+            )
+
+        # Broadcast the final plan state to the team so workers have the completed picture.
+        # Done here (after all turns) rather than at plan-creation time so workers receive
+        # accurate step statuses, not an all-not_started snapshot.
+        if self.broadcast_topic_name:
+            if isinstance(self._orchestration_strategy, AgentOrchestrationStrategy):
+                plan = orch_state.get("plan", [])
+                broadcast_msg = {
+                    "role": "assistant",
+                    "name": self.name,
+                    "content": json.dumps({"objects": plan}, indent=2),
+                }
+            else:
+                broadcast_msg = final_message
+            yield ctx.call_activity(
+                self._activity_name(self.broadcast_to_team),
+                input={"message": broadcast_msg},
+                retry_policy=self._retry_policy,
+            )
+
+        # Saved under the parent's instance id, like a plain agent's summary.
+        if self.memory is not None and self._memory.summarize_on_completion:
+            yield ctx.call_activity(
+                self._activity_name(self.summarize),
+                input={"instance_id": instance_id, **transcript.payload()},
+                retry_policy=self._retry_policy,
+            )
+
+        logger.info(f"Orchestration workflow completed for instance {instance_id}")
+
+        return final_message
+
+    def _orchestration_workflow_legacy(
+        self, ctx: wf.DaprWorkflowContext, message: dict
+    ):
         """Dedicated orchestration workflow using strategy pattern.
 
         This is an internal workflow called via call_child_workflow from agent_workflow.
@@ -2257,6 +3376,316 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         Ask the LLM to generate the next assistant message.
 
         Args:
+            payload: ``instance_id`` and the conversation keys ``new_messages``
+                (messages added since the previous call), ``history_len`` and
+                ``last_id`` (see ``dapr_agents.agents.conversation``); optional
+                ``source``, ``turn``, ``stream_context``, ``response_format``
+                and ``_stream_phase``.
+
+        Returns:
+            Assistant message as a dict, with a fresh ``id``.
+
+        Raises:
+            AgentError: If the LLM call fails or yields no message, or the
+                conversation cannot be rebuilt from the workflow history.
+        """
+        if "history_len" not in payload:  # scheduled by a run on the old path
+            return self._call_llm_legacy(ctx, payload)
+        instance_id = payload.get("instance_id")
+        source = payload.get("source")
+        response_format_name = payload.get("response_format")
+        new_messages: List[Dict[str, Any]] = list(payload.get("new_messages") or [])
+
+        response_model = None
+        if response_format_name:
+            model_map = {
+                "IterablePlanStep": IterablePlanStep,
+                "NextStep": NextStep,
+                "ProgressCheckOutput": ProgressCheckOutput,
+            }
+            response_model = model_map.get(response_format_name)
+            if response_model is None:
+                logger.warning(
+                    "Unknown response_format '%s', ignoring", response_format_name
+                )
+
+        history_id = self._history_instance_id(ctx, payload)
+        execution = payload.get("execution")
+        recorded = self._recorded_result(
+            history_id,
+            payload.get("history_len", 0),
+            payload.get("last_id"),
+            new_messages,
+            execution,
+        )
+        if recorded is not None:
+            logger.info(
+                "call_llm redelivered for %s; returning the recorded message",
+                history_id,
+            )
+            return recorded
+        conversation = (
+            self._conversation(
+                history_id,
+                payload.get("history_len", 0),
+                payload.get("last_id"),
+                execution,
+            )
+            + new_messages
+        )
+        # A trailing user message is the template's user input; everything
+        # before it is chat history.
+        user_input: Optional[Dict[str, Any]] = None
+        chat_history = conversation
+        if new_messages and new_messages[-1].get("role") == "user":
+            user_input = dict(new_messages[-1])
+            chat_history = conversation[:-1]
+        messages = self.prompting_helper.build_initial_messages(
+            user_input=user_input,
+            # Models, not dicts: the template keeps a model's ``name`` but
+            # rebuilds a dict from its role and content alone.
+            chat_history=[
+                MessageContent(**m) for m in self._recent_broadcasts() + chat_history
+            ],
+        )
+
+        # Skip printing for orchestrators' internal LLM calls
+        if not self.orchestrator:
+            for message in new_messages:
+                if message.get("role") == "user":
+                    self.text_formatter.print_message(
+                        self._label_message_with_source(dict(message), source)
+                    )
+
+        # Build generate kwargs. When the caller requested structured output
+        # AND the conversation isn't mid-tool-loop (no tool_calls on the last
+        # assistant message), omit tools/tool_choice so the model can't
+        # legitimately respond with a tool call instead of JSON.
+        last_assistant = next(
+            (
+                m
+                for m in reversed(messages)
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ),
+            None,
+        )
+        last_had_tool_calls = bool(last_assistant and last_assistant.get("tool_calls"))
+
+        tools = self.get_llm_tools()
+        generate_kwargs: Dict[str, Any] = {"messages": messages}
+        fresh_structured_turn: bool = (
+            response_model is not None and not last_had_tool_calls
+        )
+
+        if response_model is not None:
+            generate_kwargs["response_format"] = response_model
+
+        if tools and not fresh_structured_turn:
+            generate_kwargs["tools"] = tools
+            if self.execution.tool_choice is not None:
+                generate_kwargs["tool_choice"] = self.execution.tool_choice
+
+        # Resolve streaming context: if the session opted in, we emit chunks
+        # via a StreamListener in addition to returning the final message.
+        # stream_ctx is the frozen per-session decision ("this session streams"),
+        # set once in _resolve_stream_context and passed in by the workflow, never
+        # re-derived from the live self.execution.streaming flag: re-reading the
+        # live flag mid-session let content deltas stop while control + terminal
+        # chunks kept flowing (a partial, confusing stream).
+        stream_ctx = payload.get("stream_context")
+        streaming_requested = bool(stream_ctx and response_model is None)
+        if streaming_requested:
+            generate_kwargs["stream"] = True
+
+        # before_llm_call hook dispatch. Hooks fire inside this activity (rather
+        # than in the workflow body) so they can perform non-deterministic work
+        # like web search; the activity boundary records the final assistant
+        # message so replays use the recorded output rather than re-running the
+        # hook. First non-Proceed decision wins, mirroring before_tool_call.
+        before_llm_decision: Optional[HookDecision] = None
+        if self._hooks and self._hooks.before_llm_call:
+            hook_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in hook_payload:
+                hook_payload["messages"] = list(hook_payload["messages"])
+            before_ctx = LLMHookContext(payload=hook_payload)
+            for hook in self._hooks.before_llm_call:
+                result = hook(before_ctx)
+                if result is not None and not isinstance(result, Proceed):
+                    before_llm_decision = result
+                    break
+
+        if isinstance(before_llm_decision, RequireApproval):
+            raise NotImplementedError(
+                "RequireApproval is not supported on before_llm_call. LLM hooks "
+                "run inside the call_llm activity so they can perform non-"
+                "deterministic work (e.g. web search). Workflow yields for "
+                "external approval require the deterministic workflow body, "
+                "where such hooks would not be replay-safe. Use RequireApproval "
+                "on before_tool_call for HITL on tool dispatch instead."
+            )
+
+        synthesized_message: Optional[Dict[str, Any]] = None
+        if isinstance(before_llm_decision, Skip):
+            skip_content = (
+                str(before_llm_decision.result)
+                if before_llm_decision.result is not None
+                else ""
+            )
+            synthesized_message = {"role": "assistant", "content": skip_content}
+        elif isinstance(before_llm_decision, Deny):
+            deny_reason = before_llm_decision.reason or "policy denial"
+            synthesized_message = {
+                "role": "assistant",
+                "content": f"LLM call blocked: {deny_reason}",
+            }
+        elif (
+            isinstance(before_llm_decision, Mutate)
+            and before_llm_decision.payload is not None
+        ):
+            # Shallow-merge so a hook can override just the keys it cares about
+            # (e.g. only `messages` for RAG) without dropping `tools`,
+            # `response_format`, or `tool_choice` from generate_kwargs.
+            generate_kwargs = {**generate_kwargs, **before_llm_decision.payload}
+
+        response: Any = None
+        if synthesized_message is not None:
+            assistant_message = synthesized_message
+        else:
+            try:
+                response = self.llm.generate(**generate_kwargs)
+            except Exception as exc:  # noqa: BLE001
+                # When structured output was requested (orchestration plan,
+                # routing, progress check, etc.) a flaky LLM response surfaces a
+                # StructureError deep inside the nested activity / sub-orchestration
+                # chain. Attach enough context so the workflow log shows the
+                # failing schema/provider/model instead of a bare
+                # "Extraction failed: No content found for JSON mode".
+                if response_model is not None:
+                    provider = getattr(self.llm, "provider", "unknown")
+                    model_name = getattr(self.llm, "model", "unknown")
+                    raise AgentError(
+                        f"LLM structured-output call failed (schema="
+                        f"{response_format_name!r}, provider={provider!r}, "
+                        f"model={model_name!r}, agent={self.name!r}): {exc}"
+                    ) from exc
+                raise AgentError(str(exc)) from exc
+
+            # Handle structured output (Pydantic model) vs streaming vs regular.
+            if response_model is not None:
+                # Structured output: response is the Pydantic model itself
+                if hasattr(response, "model_dump"):
+                    # Response is the structured Pydantic object
+                    content = json.dumps(response.model_dump())
+                else:
+                    # Fallback: try to serialize as-is
+                    content = json.dumps(response)
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": content,
+                }
+                # Structured-output path still honours streaming: emit a uniform
+                # START+TURN_COMPLETE so consumers see the final payload.
+                if stream_ctx:
+                    self._emit_non_streaming_stream(
+                        stream_ctx=stream_ctx,
+                        instance_id=instance_id,
+                        turn=int(payload.get("turn", 0)),
+                        phase=payload.get(STREAM_PHASE),
+                        assistant_message=assistant_message,
+                        metadata={"structured_output": True},
+                    )
+            elif streaming_requested and self._is_chunk_iterator(response):
+                assistant_message = self._consume_llm_stream(
+                    response=response,
+                    stream_ctx=stream_ctx,
+                    instance_id=instance_id,
+                    turn=int(payload.get("turn", 0)),
+                    phase=payload.get(STREAM_PHASE),
+                )
+            else:
+                # Regular chat response: either streaming wasn't requested or the
+                # provider fell back (e.g., Dapr Conversation API pre-streaming).
+                stream_metadata: Optional[Dict[str, Any]] = None
+                if isinstance(response, LLMChatResponse):
+                    assistant_message = response.get_message()
+                    # Forward provider metadata (usage, model, fallback tag, …)
+                    # so TURN_COMPLETE carries it, mirroring the real streaming
+                    # path, which forwards the accumulator metadata.
+                    if response.metadata:
+                        stream_metadata = dict(response.metadata)
+                    finish_reason = (
+                        response.results[0].finish_reason if response.results else None
+                    )
+                    if finish_reason:
+                        stream_metadata = stream_metadata or {}
+                        stream_metadata.setdefault("finish_reason", finish_reason)
+                    fallback = bool(
+                        (response.metadata or {}).get(
+                            "dapr_conversation_streaming_unsupported"
+                        )
+                    )
+                else:
+                    assistant_message = response.get_message()
+                    fallback = False
+                if assistant_message is None:
+                    raise AgentError("LLM returned no assistant message.")
+                assistant_message = assistant_message.model_dump()
+                if streaming_requested or fallback:
+                    # Preserve the uniform stream shape when a streaming request
+                    # ended up non-streaming (Dapr fallback, future providers).
+                    if stream_ctx:
+                        self._emit_non_streaming_stream(
+                            stream_ctx=stream_ctx,
+                            instance_id=instance_id,
+                            turn=int(payload.get("turn", 0)),
+                            phase=payload.get(STREAM_PHASE),
+                            assistant_message=assistant_message,
+                            metadata=stream_metadata,
+                        )
+
+        # after_llm_call hook dispatch. Receives a copy of the built
+        # assistant_message and may return Mutate(payload=<replacement dict>) to
+        # replace it before persistence. Skip / Deny / RequireApproval are no-ops
+        # on the after-path since the LLM has already produced output. Hooks
+        # receive a shallow copy so in-place mutation cannot bypass the Mutate
+        # contract.
+        if self._hooks and self._hooks.after_llm_call:
+            after_payload: Dict[str, Any] = dict(generate_kwargs)
+            if "messages" in after_payload:
+                after_payload["messages"] = list(after_payload["messages"])
+            # Surface provider response metadata (token usage, finish_reason, …)
+            # so hooks can do per-call usage accounting without having to
+            # wrap/monkeypatch the LLM client themselves.
+            if isinstance(response, LLMChatResponse) and response.metadata:
+                after_payload["response_metadata"] = dict(response.metadata)
+            after_ctx = LLMHookContext(payload=after_payload)
+            for hook in self._hooks.after_llm_call:
+                result = hook(after_ctx, dict(assistant_message))
+                if isinstance(result, Mutate) and result.payload is not None:
+                    assistant_message = result.payload
+                    break
+
+        # Sanitize agent name to comply with OpenAI's message name requirements
+        assistant_message["name"] = sanitize_openai_tool_name(self.name)
+        # Lets the next call check that a cached conversation ends with the
+        # message the workflow actually recorded (see _conversation).
+        assistant_message["id"] = str(uuid.uuid4())
+        # Skip printing for orchestrators' internal LLM calls
+        if not self.orchestrator:
+            self.text_formatter.print_message(assistant_message)
+        self._remember(history_id, conversation + [assistant_message], execution)
+        return assistant_message
+
+    def _call_llm_legacy(
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Ask the LLM to generate the next assistant message.
+
+        Args:
             payload: Must contain 'instance_id'; may include 'task', 'time', and 'response_format'.
 
         Returns:
@@ -2550,6 +3979,119 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         # Single save for the entire activity
         self.save_state(instance_id, entry=entry)
         return assistant_message
+
+    @staticmethod
+    def _history_instance_id(ctx: Any, payload: Dict[str, Any]) -> str:
+        """The workflow instance that scheduled this activity: its history holds the conversation."""
+        workflow_id = getattr(ctx, "workflow_id", None)
+        if isinstance(workflow_id, str):
+            return workflow_id
+        return str(payload.get("instance_id"))
+
+    def _conversation(
+        self,
+        instance_id: str,
+        length: int,
+        last_id: Optional[str],
+        execution: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return the conversation of ``instance_id`` so far, as a new list.
+
+        Served from this worker's cache when it holds exactly ``length``
+        messages of this ``execution`` ending with the assistant message
+        ``last_id``. Otherwise the
+        conversation is rebuilt from the instance's workflow history, which
+        covers a cold or restarted worker, an eviction, and a retried call
+        whose earlier attempt ran elsewhere.
+
+        Raises:
+            AgentError: If the history does not hold ``length`` messages.
+        """
+        if length == 0:
+            return []
+        with self._conversations_lock:
+            entry = self._conversations.get(instance_id)
+        if entry is not None and entry[0] == execution:
+            cached = entry[1]
+            if len(cached) == length and cached[-1].get("id") == last_id:
+                return list(cached)
+        messages = fold_conversation(
+            self._instance_history(instance_id), self._activity_name(self.call_llm)
+        )
+        if len(messages) != length:
+            raise AgentError(
+                f"Workflow history of instance {instance_id} holds {len(messages)} "
+                f"conversation messages; the workflow expected {length}. Runs "
+                "started on an older dapr-agents version cannot continue on "
+                "this one; restart them."
+            )
+        logger.debug(
+            "Rebuilt conversation of %s from workflow history (%d messages)",
+            instance_id,
+            len(messages),
+        )
+        return messages
+
+    def _recorded_result(
+        self,
+        instance_id: str,
+        length: int,
+        last_id: Optional[str],
+        new_messages: List[Dict[str, Any]],
+        execution: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        The assistant message this call already produced on this worker, if any.
+
+        An activity is delivered at least once. When its completion was lost
+        after it ran here, the cache still holds the conversation it left: the
+        prefix this call was given, its new messages, then its answer. The
+        entry must come from the same execution: a new execution can reuse the
+        instance id and start with the same task.
+        """
+        with self._conversations_lock:
+            entry = self._conversations.get(instance_id)
+        if entry is None or entry[0] != execution:
+            return None
+        cached = entry[1]
+        if len(cached) != length + len(new_messages) + 1:
+            return None
+        if length and cached[length - 1].get("id") != last_id:
+            return None
+        if cached[length:-1] != new_messages:
+            return None
+        return dict(cached[-1])
+
+    def _remember(
+        self,
+        instance_id: str,
+        messages: List[Dict[str, Any]],
+        execution: Optional[str] = None,
+    ) -> None:
+        with self._conversations_lock:
+            self._conversations[instance_id] = (execution, messages)
+
+    def _forget(self, instance_id: str) -> None:
+        with self._conversations_lock:
+            self._conversations.pop(instance_id, None)
+
+    def _instance_history(self, instance_id: str) -> List[Any]:
+        """Committed history events of ``instance_id``, with payloads, from the sidecar."""
+        # ponytail: the SDK's public get_workflow_history drops activity
+        # payloads, so this reads the raw events through the durabletask client
+        # the workflow client wraps. Switch to a public accessor once there is one.
+        client = self._get_wf_client()._DaprWorkflowClient__obj
+        try:
+            return client.get_instance_history(instance_id)
+        except grpc.RpcError as exc:
+            code = getattr(exc, "code", None)
+            if callable(code) and code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise AgentError(
+                    "Rebuilding a conversation from workflow history needs a "
+                    "Dapr runtime of 1.17 or later."
+                ) from exc
+            raise
 
     @staticmethod
     def _call_llm_message_id(
@@ -3433,6 +4975,44 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
+        Summarize the conversation and its tool calls, then save the summary
+        to the configured memory store (keyed by workflow instance id).
+
+        Args:
+            payload: ``instance_id`` (the memory key) and the scheduling
+                workflow's conversation keys, as for ``call_llm``:
+                ``new_messages``, ``history_len``, ``last_id``, ``execution``.
+
+        Returns:
+            Dict with "content" key holding the summary text, or empty dict if
+            no memory/store or no conversation to summarize.
+        """
+        if "history_len" not in payload:  # scheduled by a run on the old path
+            return self._summarize_legacy(ctx, payload)
+        history_id = self._history_instance_id(ctx, payload)
+        # The last turn's tool replies are still pending: no call_llm followed them.
+        messages = self._conversation(
+            history_id,
+            payload.get("history_len", 0),
+            payload.get("last_id"),
+            payload.get("execution"),
+        ) + list(payload.get("new_messages") or [])
+        # The last reader of the conversation.
+        self._forget(history_id)
+        tool_calls = [
+            call
+            for m in messages
+            if m.get("role") == "assistant"
+            for call in m.get("tool_calls") or []
+        ]
+        return self._summarize_conversation(
+            payload.get("instance_id") or history_id, messages, tool_calls
+        )
+
+    def _summarize_legacy(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
         Summarize the conversation history and tool calls, then save the summary
         to the configured memory store (keyed by workflow instance id).
 
@@ -3456,6 +5036,39 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
 
     # TODO(@sicoyle): I think we can rm this, but need to double check in follow up PR if dapr captures under the hood triggering workflow instance id.
     def finalize_workflow(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Release the instance's cached conversation.
+
+        If this instance is the root of a streaming session (``depth == 0``),
+        emit a ``SESSION_COMPLETE`` chunk so consumers know the whole session
+        is done (vs. a sub-agent ``TURN_COMPLETE`` which only terminates one
+        agent's turn).
+
+        Args:
+            payload: ``instance_id``, ``final_message`` and ``stream_context``.
+        """
+        if "stream_context" not in payload:  # scheduled by a run on the old path
+            return self._finalize_workflow_legacy(ctx, payload)
+        instance_id = payload.get("instance_id")
+        if instance_id:
+            self._forget(instance_id)
+
+        stream_ctx = payload.get("stream_context")
+        if not stream_ctx or int(stream_ctx.get("depth", 0)) != 0:
+            return
+        self._publish_session_complete(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            final_message=payload.get("final_message"),
+        )
+        # Reap cached listeners only from the session root. Sub-agents
+        # share cache entries keyed by root_instance_id and must not close
+        # the transport while orchestrator turns are still emitting.
+        self._drop_session_listeners(stream_ctx.get("root_instance_id", instance_id))
+
+    def _finalize_workflow_legacy(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
@@ -3502,6 +5115,46 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             self._drop_session_listeners(root_id)
 
     def publish_stream_event(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """Emit a one-off stream event (orchestration decision, turn pause, etc.).
+
+        Takes a ``StreamChunkType`` value and an optional ``event_data`` /
+        ``phase`` and publishes the envelope through the session's configured
+        listener (``stream_context``). Activity so replay semantics remain clean:
+        on workflow replay the cached activity result ensures we don't double-emit.
+        """
+        if not payload.get("stream_context"):  # scheduled by a run on the old path
+            return self._publish_stream_event_legacy(ctx, payload)
+        instance_id = payload.get("instance_id")
+        event_type_raw = payload.get("event_type")
+        event_data = payload.get("event_data")
+        phase = payload.get("phase")
+        turn = int(payload.get("turn", 0))
+        stream_ctx = payload.get("stream_context")
+        if not instance_id or not event_type_raw or not stream_ctx:
+            return
+        try:
+            event_type = StreamChunkType(event_type_raw)
+        except ValueError:
+            logger.warning("Unknown stream event type: %s", event_type_raw)
+            return
+
+        emitter = self._build_stream_emitter(
+            stream_ctx=stream_ctx,
+            instance_id=instance_id,
+            turn=turn,
+            phase=phase,
+        )
+        if emitter is None:
+            return
+        try:
+            # Bump sequence, emit a standalone event.
+            emitter.emit_event(event_type, event_data=event_data)
+        finally:
+            emitter.close()
+
+    def _publish_stream_event_legacy(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """Emit a one-off stream event (orchestration decision, turn pause, etc.).
@@ -3828,6 +5481,27 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         }
 
     def save_plan(
+        self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
+    ) -> None:
+        """
+        Save the plan to long-term memory as an assistant message.
+
+        Args:
+            payload: Dict with 'instance_id', 'plan_message', and 'time'.
+        """
+        if "history_len" not in payload:  # scheduled by a run on the old path
+            return self._save_plan_legacy(ctx, payload)
+        instance_id = payload.get("instance_id")
+        plan_message = payload.get("plan_message")
+        self.memory.add_message(
+            AssistantMessage(
+                content=plan_message.get("content", ""), name=plan_message.get("name")
+            ),
+            instance_id,
+        )
+        logger.info(f"Saved plan to memory for instance {instance_id}")
+
+    def _save_plan_legacy(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
         """
@@ -4241,6 +5915,14 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         Args:
             runtime: The Dapr workflow runtime to register with.
         """
+        runtime_version = getattr(self, "_dapr_runtime_version", None)
+        if isinstance(runtime_version, str) and not is_version_supported(
+            runtime_version, ">=1.17.0"
+        ):
+            raise DaprRuntimeVersionNotSupportedError(
+                f"DurableAgent needs Dapr runtime 1.17 or later, the sidecar runs "
+                f"{runtime_version}. Workflow patches and history reads need 1.17."
+            )
         # Primary entry point — unique per agent
         self._register_versions(
             runtime, self.agent_workflow_name, (("v1", self.agent_workflow),)

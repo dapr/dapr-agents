@@ -27,7 +27,7 @@ import pytest
 from dapr_agents.agents.executor_run import (
     EXECUTOR_FAILED_KEY,
     EXECUTOR_PAUSED_KEY,
-    ExecutorRunRecorder,
+    LegacyExecutorRunRecorder,
     PausedExecutorRun,
 )
 from dapr_agents.agents.executors import (
@@ -50,6 +50,7 @@ from dapr.ext.workflow import MCPToolDef
 from tests.agents.durableagent.test_durable_executor import (  # noqa: F401
     _make_agent,
     _ScriptedExecutor,
+    old_path_executor,
     patch_dapr_check,
     setup_env,
 )
@@ -147,6 +148,7 @@ class _WorkflowDriver:
         ctx = Mock()
         ctx.instance_id = "wf-1"
         ctx.is_replaying = False
+        ctx.is_patched.return_value = False  # old path
         ctx.current_utc_datetime.isoformat.return_value = "2026-01-01T00:00:00"
         ctx.call_activity = Mock(side_effect=self._activity)
         ctx.wait_for_external_event = Mock(return_value=self.event_task)
@@ -630,14 +632,14 @@ class TestStreamingAndObserver:
 
     def test_no_emitter_without_stream_context(self):
         agent = _make_agent(_ApprovalExecutor([]))
-        assert agent._executor_stream_emitter("i", 0, _entry()) is None
+        assert agent._executor_stream_emitter("i", 0, _entry().stream_context) is None
 
     def test_emitter_turn_follows_round(self):
         agent = _make_agent(_ApprovalExecutor([]))
         entry = _entry()
         entry.stream_context = {"listener_config": {"type": "in_process"}}
         with patch.object(agent, "_build_stream_emitter", return_value="e") as build:
-            assert agent._executor_stream_emitter("i", 2, entry) == "e"
+            assert agent._executor_stream_emitter("i", 2, entry.stream_context) == "e"
         assert build.call_args.kwargs["turn"] == 3
 
 
@@ -803,7 +805,7 @@ class TestClaudeInDurableAgent:
 
 
 def _recorder(agent):
-    return ExecutorRunRecorder(
+    return LegacyExecutorRunRecorder(
         agent,
         instance_id="wf-1",
         entry=_entry(),

@@ -43,6 +43,14 @@ from dapr_agents.types.tools import ToolExecutionStatus
 
 
 @pytest.fixture(autouse=True)
+def old_path_executor(monkeypatch):
+    """These tests specify the old path; test_durable_executor_history.py the new one."""
+    monkeypatch.setattr(
+        DurableAgent, "_consume_executor", DurableAgent._consume_executor_legacy
+    )
+
+
+@pytest.fixture(autouse=True)
 def patch_dapr_check(monkeypatch):
     """Neutralize Dapr workflow runtime + retry policy for unit tests."""
     mock_runtime = Mock(spec=wf.WorkflowRuntime)
@@ -806,6 +814,7 @@ class TestAgentWorkflowExecutorBranch:
         ctx = DaprWorkflowContext()
         ctx.instance_id = "wf-inst-42"
         ctx.is_replaying = False
+        ctx.is_patched = Mock(return_value=False)  # old path
 
         captured: List[Dict[str, Any]] = []
 
