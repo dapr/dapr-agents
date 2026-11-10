@@ -660,6 +660,28 @@ class TestObservabilityConfigFromEnvironment(ObservabilityConfigTestBase):
         assert isinstance(resolved_config, AgentObservabilityConfig)
         assert resolved_config == expected_config
 
+    def test_observability_config_from_env_headers_unset_is_empty_dict(self):
+        """Unset OTEL headers yield an empty dict, matching the field default."""
+        with pytest.warns(DeprecationWarning):
+            resolved_config = AgentObservabilityConfig.from_env()
+
+        assert resolved_config.headers == {}
+        assert resolved_config.headers == AgentObservabilityConfig().headers
+
+    def test_observability_config_from_env_headers_set_are_parsed(self, monkeypatch):
+        """OTEL headers set in the environment are parsed into a dict."""
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer env-token,X-Tenant=t1"
+        )
+
+        with pytest.warns(DeprecationWarning):
+            resolved_config = AgentObservabilityConfig.from_env()
+
+        assert resolved_config.headers == {
+            "Authorization": "Bearer env-token",
+            "X-Tenant": "t1",
+        }
+
     # TODO: remove once Zipkin exporter is removed
     def test_observability_config_from_env_zipkin_exporter(self, mock_llm, monkeypatch):
         """Test that observability config supports the Zipkin exporter."""
