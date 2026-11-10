@@ -13,10 +13,13 @@
 
 """Tests for the pure transcript helpers used to plan Claude resumes."""
 
+import pytest
+
 from dapr_agents.agents.executors.claude_transcript import (
     DeferredCall,
     final_assistant_text,
     last_total_cost,
+    sum_cost_state_totals,
     last_user_prompt,
     pending_deferred_call,
 )
@@ -190,3 +193,18 @@ class TestLastTotalCost:
     def test_none_when_absent_or_invalid(self):
         assert last_total_cost([]) is None
         assert last_total_cost([{"type": "cost-state", "totalCostUSD": "x"}]) is None
+
+
+class TestSumCostStateTotals:
+    def test_sums_every_numeric_cost_state(self):
+        entries = [
+            {"type": "cost-state", "totalCostUSD": 0.20},
+            {"type": "user", "uuid": "u2"},
+            {"type": "cost-state", "totalCostUSD": 0.10},
+            {"type": "cost-state", "totalCostUSD": "x"},
+        ]
+        assert sum_cost_state_totals(entries) == pytest.approx(0.30)
+
+    def test_none_when_absent(self):
+        assert sum_cost_state_totals([]) is None
+        assert sum_cost_state_totals([{"type": "user"}]) is None
