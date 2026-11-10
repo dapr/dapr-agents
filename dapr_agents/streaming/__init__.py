@@ -26,6 +26,7 @@ from dapr_agents.streaming.consumers import (
 )
 from dapr_agents.streaming.emitter import StreamEmitter
 from dapr_agents.streaming.keys import (
+    APPROVAL_RESPONSE_EVENT_PREFIX,
     INCLUDE_COMPLETE_MESSAGE,
     MESSAGE_METADATA,
     STREAM_CONTEXT,
@@ -48,6 +49,7 @@ from dapr_agents.streaming.listeners import (
 from dapr_agents.types.streaming import AssistantMessageAccumulator
 
 __all__ = [
+    "APPROVAL_RESPONSE_EVENT_PREFIX",
     "AssistantMessageAccumulator",
     "CompositeListener",
     "INCLUDE_COMPLETE_MESSAGE",

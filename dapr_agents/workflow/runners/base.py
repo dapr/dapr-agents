@@ -35,7 +35,11 @@ from dapr.ext.workflow import DaprWorkflowClient
 from dapr.ext.workflow.workflow_state import WorkflowState
 from fastapi import FastAPI
 
-from dapr_agents.types.workflow import HttpRouteSpec, PubSubRouteSpec
+from dapr_agents.types.workflow import (
+    HttpRouteSpec,
+    PubSubRouteSpec,
+    WorkflowEventRouteSpec,
+)
 from dapr_agents.utils import DaprClientFactory, default_dapr_client_factory
 from dapr_agents.utils.signal.mixin import SignalMixin
 from dapr_agents.workflow.utils.registration import (
@@ -245,7 +249,9 @@ class WorkflowRunner(SignalMixin):
         self,
         *,
         targets: Optional[Iterable[Any]] = None,
-        routes: Optional[Iterable[Union[PubSubRouteSpec, HttpRouteSpec]]] = None,
+        routes: Optional[
+            Iterable[Union[PubSubRouteSpec, WorkflowEventRouteSpec, HttpRouteSpec]]
+        ] = None,
         delivery_mode: Literal["sync", "async"] = "sync",
         deduper: Optional[Any] = None,
         await_result: bool = False,
@@ -259,16 +265,21 @@ class WorkflowRunner(SignalMixin):
 
         1) Discovery mode: provide `targets` to auto-discover `@message_router`
         and `@http_router` handlers.
-        2) Explicit mode: provide `routes` (list of PubSubRouteSpec | HttpRouteSpec)
-        to create subscriptions/endpoints directly. In explicit mode, if a spec
-        omits `message_model`/`request_model` and `handler_fn` is decorated, the
-        decorator's schema is used; otherwise `dict`.
+        2) Explicit mode: provide `routes` (list of PubSubRouteSpec |
+        WorkflowEventRouteSpec | HttpRouteSpec) to create subscriptions/endpoints
+        directly. In explicit mode, if a spec omits `message_model`/`request_model`
+        and `handler_fn` is decorated, the decorator's schema is used; otherwise
+        `dict`. A `WorkflowEventRouteSpec` raises an external event on an existing
+        workflow instance instead of scheduling a new one.
 
         Args:
             targets: Instances/functions to scan for decorator metadata. (Discovery mode)
             routes: Explicit route specs to wire. (Explicit mode)
             delivery_mode: "sync" blocks Dapr thread; "async" enqueues to a worker.
             deduper: Optional idempotency backend with `seen(key)` / `mark(key)`.
+                Applies to schedule routes only; a `WorkflowEventRouteSpec` uses its
+                own `deduper` or a per-topic in-memory default. To share dedupe
+                across replicas for an event route, set `spec.deduper`.
             await_result: If True (sync only), wait for completion and ACK/NACK accordingly.
             await_timeout: Timeout (seconds) for completion wait when `await_result=True`.
             fetch_payloads: Include payloads when waiting for completion.
@@ -326,7 +337,9 @@ class WorkflowRunner(SignalMixin):
 
         # ---- Explicit mode (routes) ----
         specs = list(routes or [])
-        pubsub_specs = [r for r in specs if isinstance(r, PubSubRouteSpec)]
+        pubsub_specs = [
+            r for r in specs if isinstance(r, (PubSubRouteSpec, WorkflowEventRouteSpec))
+        ]
         http_specs = [r for r in specs if isinstance(r, HttpRouteSpec)]
 
         if pubsub_specs and not self._wired_pubsub and self._dapr_client is not None:
@@ -344,6 +357,14 @@ class WorkflowRunner(SignalMixin):
             )
             self._pubsub_closers.extend(closers)
             self._wired_pubsub = True
+        elif pubsub_specs and self._wired_pubsub:
+            logger.warning(
+                "[%s] Pub/sub is already wired on this runner; ignoring %d route(s): %s. "
+                "Call unwire_pubsub() first to register them.",
+                self._name,
+                len(pubsub_specs),
+                [f"{r.pubsub_name}:{r.topic}" for r in pubsub_specs],
+            )
 
         if http_specs and fastapi_app is not None and not self._wired_http:
             register_http_routes(
