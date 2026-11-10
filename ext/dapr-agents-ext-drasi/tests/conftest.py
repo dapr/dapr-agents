@@ -21,7 +21,7 @@ from importlib.resources import files
 from typing import cast
 
 import pytest
-from drasi_agent_router_contracts import ListQueriesResponse, parse
+from drasi_agent_router_contracts import AgentDelivery, ListQueriesResponse, parse
 from drasi_agent_router_contracts.models.Operation import Operation
 
 from dapr_agents.ext.drasi._models import (
@@ -32,6 +32,13 @@ from dapr_agents.ext.drasi._models import (
 )
 
 _CURRENT_INCARNATION = "incarnation-service-errors"
+
+
+@pytest.fixture(autouse=True)
+def isolated_dynamic_application_owners(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dapr_agents.ext.drasi import _registration
+
+    monkeypatch.setattr(_registration, "_DYNAMIC_APPLICATION_OWNERS", {})
 
 
 def _published_messages() -> dict[str, dict[str, object]]:
@@ -140,3 +147,38 @@ def intent_document(
             rollout_intent.query_id: rollout_intent,
         },
     )
+
+
+def _current_delivery(document: dict[str, object]) -> AgentDelivery:
+    adapted = deepcopy(document)
+    adapted["subscriptionIncarnation"] = _CURRENT_INCARNATION
+    return parse(AgentDelivery, adapted)
+
+
+@pytest.fixture(params=("insert", "update", "delete"))
+def canonical_delivery(
+    request: pytest.FixtureRequest,
+    published_messages: dict[str, dict[str, object]],
+) -> AgentDelivery:
+    return _current_delivery(published_messages[cast(str, request.param)])
+
+
+@pytest.fixture
+def insert_delivery(
+    published_messages: dict[str, dict[str, object]],
+) -> AgentDelivery:
+    return _current_delivery(published_messages["insert"])
+
+
+@pytest.fixture
+def update_delivery(
+    published_messages: dict[str, dict[str, object]],
+) -> AgentDelivery:
+    return _current_delivery(published_messages["update"])
+
+
+@pytest.fixture
+def delete_delivery(
+    published_messages: dict[str, dict[str, object]],
+) -> AgentDelivery:
+    return _current_delivery(published_messages["delete"])

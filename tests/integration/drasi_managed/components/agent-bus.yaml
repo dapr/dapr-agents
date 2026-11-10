@@ -1,0 +1,23 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-bus
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: broker:6379
+    - name: redisPassword
+      value: ""
+    - name: concurrency
+      value: "1"
+    - name: queueDepth
+      value: "1"
+    - name: processingTimeout
+      value: 15s
+    - name: redeliverInterval
+      value: 1s
+scopes:
+  - managed-agent
+  - drasi-router

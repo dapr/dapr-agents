@@ -1,0 +1,22 @@
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: managed-delivery
+scopes:
+  - managed-agent
+  - drasi-router
+spec:
+  policies:
+    retries:
+      boundedDelivery:
+        policy: constant
+        duration: 2s
+        maxRetries: 3
+  targets:
+    components:
+      agent-bus:
+        inbound:
+          retry: boundedDelivery
+      drasi-inbound:
+        inbound:
+          retry: boundedDelivery

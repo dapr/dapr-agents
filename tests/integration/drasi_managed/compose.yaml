@@ -1,0 +1,226 @@
+services:
+  broker:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - broker-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  agent-state:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - agent-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  runtime-state:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - runtime-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  placement:
+    image: daprio/placement:1.18.4
+    command: ["./placement", "--port", "50005"]
+
+  scheduler:
+    image: daprio/scheduler:1.18.4
+    command:
+      - ./scheduler
+      - --port
+      - "50006"
+      - --override-broadcast-host-port
+      - scheduler:50006
+      - --etcd-data-dir
+      - /tmp/drasi-i2-scheduler
+
+  router-dapr:
+    image: daprio/daprd:1.18.4
+    command:
+      - ./daprd
+      - --app-id
+      - drasi-router
+      - --app-port
+      - "8000"
+      - --resources-path
+      - /components
+      - --config
+      - /config.yaml
+      - --dapr-listen-addresses
+      - 0.0.0.0
+      - --dapr-internal-grpc-port
+      - "50002"
+      - --log-level
+      - warn
+    environment:
+      NAMESPACE: drasi-integration
+    volumes:
+      - ./components:/components:ro
+      - ./config.yaml:/config.yaml:ro
+    networks:
+      default:
+        aliases:
+          - drasi-router-dapr
+    depends_on:
+      broker:
+        condition: service_healthy
+      runtime-state:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1::3500"
+      - "127.0.0.1::8000"
+
+  router:
+    image: ${DRASI_ROUTER_IMAGE:?Set by the integration runner}
+    build:
+      context: https://github.com/drasi-project/drasi-platform.git#7e3f4f2aec6574ba1f487d910315e4265670ddc8:reactions/dapr/agent-router
+      dockerfile: Dockerfile.default
+      additional_contexts:
+        reaction_sdk: https://github.com/drasi-project/drasi-platform.git#7e3f4f2aec6574ba1f487d910315e4265670ddc8:reactions/sdk/python
+    network_mode: service:router-dapr
+    environment:
+      routerId: drasi-integration/drasi-router
+      PubsubName: drasi-inbound
+      egressPubsubName: agent-bus
+      StateStoreName: router-state
+      DAPR_HTTP_ENDPOINT: http://127.0.0.1:3500
+      DAPR_GRPC_ENDPOINT: 127.0.0.1:50001
+    volumes:
+      - ${DRASI_QUERY_DIRECTORY:?Set by the integration runner}:/etc/queries:ro
+    depends_on:
+      router-dapr:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2)"
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  agent-dapr:
+    image: daprio/daprd:1.18.4
+    command:
+      - ./daprd
+      - --app-id
+      - managed-agent
+      - --app-port
+      - "8000"
+      - --resources-path
+      - /components
+      - --config
+      - /config.yaml
+      - --dapr-listen-addresses
+      - 0.0.0.0
+      - --dapr-internal-grpc-port
+      - "50002"
+      - --placement-host-address
+      - placement:50005
+      - --scheduler-host-address
+      - scheduler:50006
+      - --log-level
+      - warn
+    environment:
+      NAMESPACE: drasi-integration
+    volumes:
+      - ./components:/components:ro
+      - ./config.yaml:/config.yaml:ro
+    networks:
+      default:
+        aliases:
+          - managed-agent-dapr
+    depends_on:
+      broker:
+        condition: service_healthy
+      agent-state:
+        condition: service_healthy
+      runtime-state:
+        condition: service_healthy
+      placement:
+        condition: service_started
+      scheduler:
+        condition: service_started
+    ports:
+      - "127.0.0.1::3500"
+      - "127.0.0.1::8000"
+
+  model:
+    image: ${DRASI_AGENT_IMAGE:?Set by the integration runner}
+    build:
+      context: ../../..
+      dockerfile: tests/integration/drasi_managed/Dockerfile.agent
+      args:
+        DRASI_CORE_VERSION: ${DRASI_CORE_VERSION:?Derived from the local core wheel}
+    command:
+      - python
+      - -m
+      - uvicorn
+      - model_app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    ports:
+      - "127.0.0.1::8001"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/evidence', timeout=2)"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  agent:
+    image: ${DRASI_AGENT_IMAGE:?Set by the integration runner}
+    network_mode: service:agent-dapr
+    environment:
+      DAPR_HTTP_ENDPOINT: http://127.0.0.1:3500
+      DAPR_GRPC_ENDPOINT: 127.0.0.1:50001
+      DAPR_HTTP_PORT: "3500"
+      DAPR_GRPC_PORT: "50001"
+      DAPR_API_TIMEOUT_SECONDS: "5"
+      DAPR_API_MAX_RETRIES: "1"
+      OTEL_SDK_DISABLED: "true"
+    depends_on:
+      agent-dapr:
+        # DaprClient waits for /healthz/outbound before the metadata RPC.
+        condition: service_started
+      router:
+        condition: service_healthy
+      model:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  broker-data:
+  agent-data:
+  runtime-data:
