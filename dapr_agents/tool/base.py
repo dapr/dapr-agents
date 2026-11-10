@@ -74,6 +74,7 @@ class AgentTool(BaseModel):
     )
 
     _is_async: bool = PrivateAttr(default=False)
+    _args_model_inferred: bool = PrivateAttr(default=False)
 
     @model_validator(mode="before")
     @classmethod
@@ -340,11 +341,13 @@ class AgentTool(BaseModel):
         """Initialize Tool fields from a provided function."""
         if self.args_model is None:
             self.args_model = ToolHelper.infer_func_schema(func)
+            self._args_model_inferred = True
 
     def _initialize_from_run(self) -> None:
         """Initialize Tool fields based on the abstract `_run` method."""
         if self.args_model is None:
             self.args_model = ToolHelper.infer_func_schema(self._run)
+            self._args_model_inferred = True
 
     def _validate_and_prepare_args(
         self, func: Callable, *args, **kwargs
@@ -391,7 +394,17 @@ class AgentTool(BaseModel):
                     kwargs = {"kwargs": kwargs}
 
                 validated_args = self.args_model(**kwargs)
-                out = validated_args.model_dump(exclude_none=True)
+                if self._args_model_inferred:
+                    # The model mirrors the function signature, so pass the
+                    # validated values as is: a parameter annotated with a
+                    # Pydantic model or dataclass receives that type, not a dict.
+                    out = {
+                        name: value
+                        for name, value in validated_args
+                        if value is not None
+                    }
+                else:
+                    out = validated_args.model_dump(exclude_none=True)
 
                 # Always return flat args for executors (unwrap if model was kwargs-wrapped)
                 if (
