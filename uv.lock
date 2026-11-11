@@ -19,7 +19,6 @@ exclude-newer-span = "P7D"
 [options.exclude-newer-package]
 nltk = "2026-10-22T00:00:00Z"
 dapr = "2026-10-22T00:00:00Z"
-claude-agent-sdk = "2026-09-24T00:00:00Z"
 pypdf = "2026-10-22T00:00:00Z"
 anthropic = "2026-08-23T00:00:00Z"
 drasi-agent-router-contracts = "2026-10-10T00:40:00Z"
