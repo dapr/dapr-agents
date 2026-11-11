@@ -27,6 +27,11 @@ from fastapi import FastAPI
 
 from dapr_agents.agents.configs import AgentMCPConfig
 from dapr_agents.agents.durable import DurableAgent
+from dapr_agents.streaming.listeners import (
+    _get_in_process_queue,
+    register_in_process_queue,
+    unregister_in_process_queue,
+)
 from dapr_agents.tool.executor import AgentToolExecutor
 from dapr_agents.types import AgentError
 from dapr_agents.types.activation import ActivationContext
@@ -325,6 +330,63 @@ def test_closing_stream_early_only_closes_stream_consumer() -> None:
 
     assert closer_calls == [1]
     assert not agent._started
+
+
+@pytest.mark.parametrize("existing_registration", [False, True])
+def test_cancelling_first_iteration_during_schedule(
+    existing_registration: bool,
+) -> None:
+    events: list[str] = []
+    agent = _make_agent(events, mcp_enabled=False)
+    runner = AgentRunner(wf_client=MagicMock(), client_factory=lambda: MagicMock())
+    runner.discover_entry = MagicMock(return_value=lambda: None)
+    registry_key = "stream-schedule-cancellation"
+
+    async def cancel_first_iteration() -> None:
+        scheduling = asyncio.Event()
+        release_schedule = asyncio.Event()
+        original_queue = (
+            register_in_process_queue(registry_key) if existing_registration else None
+        )
+
+        async def schedule_workflow(*_args: Any, **_kwargs: Any) -> str:
+            scheduling.set()
+            await release_schedule.wait()
+            return "stream-instance"
+
+        runner.run_workflow_async = schedule_workflow
+        stream = runner.run_stream(
+            agent,
+            payload={"task": "test"},
+            instance_id="stream-instance",
+            listener={"type": "in_process", "registry_key": registry_key},
+        )
+        first = asyncio.create_task(anext(stream))
+        try:
+            await asyncio.wait_for(scheduling.wait(), timeout=5)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            await stream.aclose()
+            if original_queue is not None:
+                assert _get_in_process_queue(registry_key) is original_queue
+                assert original_queue.empty()
+            else:
+                with pytest.raises(LookupError, match="No in-process queue"):
+                    _get_in_process_queue(registry_key)
+            assert agent._started
+        finally:
+            release_schedule.set()
+            if not first.done():
+                first.cancel()
+                await asyncio.gather(first, return_exceptions=True)
+            await stream.aclose()
+            unregister_in_process_queue(registry_key)
+
+    try:
+        asyncio.run(cancel_first_iteration())
+    finally:
+        runner.shutdown(agent)
 
 
 def test_run_stream_propagates_mcp_failure_before_hosting(

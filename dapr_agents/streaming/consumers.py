@@ -30,7 +30,7 @@ from typing import AsyncIterator, Optional, Protocol
 
 from dapr_agents.streaming.listeners import (
     _get_in_process_queue,
-    unregister_in_process_queue,
+    _unregister_in_process_queue,
 )
 from dapr_agents.types.streaming import AgentStreamChunk, StreamChunkType
 
@@ -82,11 +82,46 @@ class InProcessQueueConsumer:
     """
 
     def __init__(self, *, registry_key: str, root_instance_id: str) -> None:
+        self._initialize(
+            registry_key,
+            root_instance_id,
+            _get_in_process_queue(registry_key),
+            owns_registration=True,
+        )
+
+    def _initialize(
+        self,
+        registry_key: str,
+        root_instance_id: str,
+        registered_queue: asyncio.Queue[Optional[AgentStreamChunk]],
+        *,
+        owns_registration: bool,
+    ) -> None:
         self._registry_key = registry_key
         self._root_instance_id = root_instance_id
-        self._queue = _get_in_process_queue(registry_key)
+        self._queue = registered_queue
+        self._owns_registration = owns_registration
         self._closed = False
         self._terminated = False
+
+    @classmethod
+    def _for_runner(
+        cls,
+        *,
+        registry_key: str,
+        root_instance_id: str,
+        owned_queue: Optional[asyncio.Queue[Optional[AgentStreamChunk]]],
+    ) -> "InProcessQueueConsumer":
+        consumer = cls.__new__(cls)
+        consumer._initialize(
+            registry_key,
+            root_instance_id,
+            owned_queue
+            if owned_queue is not None
+            else _get_in_process_queue(registry_key),
+            owns_registration=owned_queue is not None,
+        )
+        return consumer
 
     def __aiter__(self) -> "InProcessQueueConsumer":
         return self
@@ -115,9 +150,8 @@ class InProcessQueueConsumer:
         if self._closed:
             return
         self._closed = True
-        # Remove the registry entry and wake a blocked reader (if any) with
-        # the sentinel. Safe to call even if the producer already finished.
-        unregister_in_process_queue(self._registry_key)
+        if self._owns_registration:
+            _unregister_in_process_queue(self._registry_key, expected_queue=self._queue)
 
 
 # ---------------------------------------------------------------------------
