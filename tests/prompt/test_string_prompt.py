@@ -80,3 +80,24 @@ class TestStringPromptTemplateFormatPrompt:
         prefilled = template.pre_fill_variables(place="Wonderland")
         with pytest.raises(ValueError, match="Missing required variables"):
             prefilled.format_prompt()
+
+    def test_from_template_preserves_variable_order_and_uniqueness(self):
+        """from_template should preserve appearance order and deduplicate variables."""
+        template = StringPromptTemplate.from_template(
+            "Hello {first} {last}, your email is {email}. Bye {first}!"
+        )
+        assert template.input_variables == ["first", "last", "email"]
+
+    def test_format_prompt_handles_parameter_name_collisions(self):
+        """Variables named template, template_format, environment, cls, or self format cleanly."""
+        template = StringPromptTemplate.from_template(
+            "{template}|{template_format}|{environment}|{cls}|{self}"
+        )
+        prefilled = template.pre_fill_variables(**{"self": "me"})
+        result = prefilled.format_prompt(
+            template="tpl",
+            template_format="json",
+            environment="prod",
+            cls="Agent",
+        )
+        assert result == "tpl|json|prod|Agent|me"

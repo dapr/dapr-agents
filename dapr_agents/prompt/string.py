@@ -11,9 +11,11 @@
 # limitations under the License.
 #
 
+from typing import Any, Literal, Union, cast
+
 from dapr_agents.prompt.base import PromptTemplateBase
+from dapr_agents.prompt.engine import TemplateEngine
 from dapr_agents.prompt.utils.string import StringPromptHelper
-from typing import Any, Union, Literal
 
 
 class StringPromptTemplate(PromptTemplateBase):
@@ -29,7 +31,7 @@ class StringPromptTemplate(PromptTemplateBase):
     template: str
     template_format: Literal["f-string", "jinja2"] = "f-string"
 
-    def format_prompt(self, **kwargs: Any) -> str:
+    def format_prompt(self, /, **kwargs: Any) -> str:
         """
         Format the prompt by replacing variables in the template, using any provided keyword arguments.
         Validates the template structure before formatting.
@@ -44,7 +46,7 @@ class StringPromptTemplate(PromptTemplateBase):
             ValueError: If required variables are missing or extra undeclared variables are passed.
         """
         # Extract the required input variables from the template
-        input_variables = StringPromptHelper.extract_variables(
+        input_variables = TemplateEngine.extract_variables(
             self.template, self.template_format
         )
 
@@ -62,14 +64,14 @@ class StringPromptTemplate(PromptTemplateBase):
         if extra_variables:
             raise ValueError(f"Undeclared variables were passed: {extra_variables}")
 
-        # Use the helper to format the content
-        return StringPromptHelper.format_content(
-            self.template, self.template_format, **all_variables
+        # Use the template engine to format the content
+        return TemplateEngine.render_mapping(
+            self.template, all_variables, self.template_format
         )
 
     @classmethod
     def from_template(
-        cls, template: str, template_format: str = "f-string", **kwargs: Any
+        cls, /, template: str, template_format: str = "f-string", **kwargs: Any
     ) -> "StringPromptTemplate":
         """
         Create a StringPromptTemplate from a template string.
@@ -82,12 +84,12 @@ class StringPromptTemplate(PromptTemplateBase):
         Returns:
             StringPromptTemplate: A new instance of the template with extracted input variables.
         """
-        input_variables = StringPromptHelper.extract_variables(
-            template, template_format
+        input_variables = list(
+            dict.fromkeys(TemplateEngine.extract_variables(template, template_format))
         )
         return cls(
             template=template,
-            template_format=template_format,
+            template_format=cast(Literal["f-string", "jinja2"], template_format),
             input_variables=input_variables,
             **kwargs,
         )
@@ -111,9 +113,9 @@ class StringPromptTemplate(PromptTemplateBase):
                     "Adding prompt templates only supported for the same template format."
                 )
 
-            # Combine input variables
+            # Combine input variables while preserving order and uniqueness
             input_variables = list(
-                set(self.input_variables) | set(other.input_variables)
+                dict.fromkeys(self.input_variables + other.input_variables)
             )
 
             # Combine template strings
@@ -140,3 +142,9 @@ class StringPromptTemplate(PromptTemplateBase):
         else:
             # Raise error for unsupported types
             raise NotImplementedError(f"Unsupported operand type for +: {type(other)}")
+
+
+__all__ = [
+    "StringPromptTemplate",
+    "StringPromptHelper",
+]

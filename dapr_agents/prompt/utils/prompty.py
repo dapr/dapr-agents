@@ -18,10 +18,9 @@ from dapr_agents.types.message import (
     ToolMessage,
     BaseMessage,
 )
-from dapr_agents.prompt.utils.fstring import extract_fstring_variables
-from dapr_agents.prompt.utils.jinja import extract_jinja_variables
+from dapr_agents.prompt.engine import TemplateEngine
 from typing import Dict, Any, Tuple, Optional, Union, List, Literal
-from jinja2 import Template, TemplateError
+from jinja2 import TemplateError
 from pathlib import Path
 import yaml
 import re
@@ -300,12 +299,9 @@ class PromptyHelper:
         Render the Prompty content using Jinja2 with the provided inputs.
         """
         try:
-            template = Template(content)
-            rendered_content = template.render(inputs)
+            return TemplateEngine.render_mapping(content, inputs, "jinja2")
         except TemplateError as e:
             raise ValueError(f"Template rendering error: {e}")
-
-        return rendered_content
 
     @staticmethod
     def to_prompt(
@@ -411,7 +407,7 @@ class PromptyHelper:
     @staticmethod
     def extract_placeholders_from_content(
         content: str, template_format: Literal["f-string", "jinja2"] = "jinja2"
-    ) -> Union[List[str], Tuple[List[str], List[str]]]:
+    ) -> List[str]:
         """
         Extract undeclared variables from the content based on the specified template format.
 
@@ -420,13 +416,8 @@ class PromptyHelper:
             template_format (Literal["f-string", "jinja2"]): The format of the template, either "f-string" or "jinja2". Default is "jinja2".
 
         Returns:
-            Union[List[str], Tuple[List[str], List[str]]]:
+            List[str]:
                 - For "f-string" format: A list of variable names.
                 - For "jinja2" format: A list of undeclared variables.
         """
-        if template_format == "jinja2":
-            return extract_jinja_variables(content)
-        elif template_format == "f-string":
-            return extract_fstring_variables(content)
-        else:
-            raise ValueError(f"Unsupported template format: {template_format}")
+        return TemplateEngine.extract_variables(content, template_format)
