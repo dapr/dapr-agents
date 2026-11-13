@@ -646,11 +646,4 @@ __all__ = [
     "extract_usage_from_dict",
     "extract_usage_from_object",
     "convert_messages_to_genai_format",
-    "_coerce_token_count",
-    "_get_usage_value",
-    "_get_input_token_count",
-    "_get_output_token_count",
-    "_get_total_token_count",
-    "_get_cache_creation_token_count",
-    "_get_cache_read_token_count",
 ]

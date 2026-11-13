@@ -318,6 +318,25 @@ class TestLLMWrapperTokenAttributes:
         assert attrs[GEN_AI_USAGE_OUTPUT_TOKENS] == 50
         assert attrs[GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS] == 30
 
+    def test_set_token_attributes_openai_cached_tokens_object(
+        self, tracer, exporter, wrapper
+    ):
+        metadata = {
+            "usage": SimpleNamespace(
+                prompt_tokens=100,
+                completion_tokens=50,
+                prompt_tokens_details=SimpleNamespace(cached_tokens=30),
+            )
+        }
+        span = tracer.start_span("test")
+        wrapper._set_token_attributes(span, metadata)
+        span.end()
+
+        attrs = exporter.get_finished_spans()[0].attributes
+        assert attrs[GEN_AI_USAGE_INPUT_TOKENS] == 100
+        assert attrs[GEN_AI_USAGE_OUTPUT_TOKENS] == 50
+        assert attrs[GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS] == 30
+
 
 class TestLLMStreamingTokenAttributes:
     def test_streaming_output_attributes_openai(self, tracer, exporter, wrapper):
