@@ -277,12 +277,25 @@ class AssistantMessageAccumulator:
                 self._tool_calls[tc.index] = buf
             buf.merge(tc)
         if metadata:
-            if isinstance(self._last_metadata, dict) and isinstance(metadata, dict):
-                merged = {**self._last_metadata, **metadata}
-                prev_usage = self._last_metadata.get("usage")
-                curr_usage = metadata.get("usage")
-                if isinstance(prev_usage, dict) and isinstance(curr_usage, dict):
-                    merged["usage"] = {**prev_usage, **curr_usage}
+            if isinstance(metadata, dict):
+                merged = dict(metadata)
+                previous_usage = (
+                    self._last_metadata.get("usage")
+                    if isinstance(self._last_metadata, dict)
+                    else None
+                )
+                current_usage = metadata.get("usage")
+
+                # Merge partial usage metadata because token counts may be split across stream chunks
+                if isinstance(previous_usage, dict):
+                    if isinstance(current_usage, dict):
+                        merged["usage"] = {
+                            **previous_usage,
+                            **current_usage,
+                        }
+                    elif current_usage is None:
+                        merged["usage"] = previous_usage
+
                 self._last_metadata = merged
             else:
                 self._last_metadata = metadata
