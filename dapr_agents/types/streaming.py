@@ -277,7 +277,15 @@ class AssistantMessageAccumulator:
                 self._tool_calls[tc.index] = buf
             buf.merge(tc)
         if metadata:
-            self._last_metadata = metadata
+            if isinstance(self._last_metadata, dict) and isinstance(metadata, dict):
+                merged = {**self._last_metadata, **metadata}
+                prev_usage = self._last_metadata.get("usage")
+                curr_usage = metadata.get("usage")
+                if isinstance(prev_usage, dict) and isinstance(curr_usage, dict):
+                    merged["usage"] = {**prev_usage, **curr_usage}
+                self._last_metadata = merged
+            else:
+                self._last_metadata = metadata
         return candidate
 
     # -- readers -----------------------------------------------------------
