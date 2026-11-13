@@ -75,5 +75,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 
+[tool.uv]
+config-settings = { editable_mode = "compat" }
+
 [tool.uv.sources]
 dapr-agents = { workspace = true, editable = true }
