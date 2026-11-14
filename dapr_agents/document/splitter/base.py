@@ -252,12 +252,17 @@ class SplitterBase(BaseModel, ABC):
         for doc in documents:
             text_chunks = self.split(doc.text)
 
-            previous_end = 0
+            cursor = 0
             for chunk_num, chunk in enumerate(text_chunks):
-                start_index = doc.text.find(chunk, previous_end)
+                chunk_len = len(chunk)
+                start_index = doc.text.find(chunk, cursor)
                 if start_index == -1:
-                    start_index = previous_end
-                end_index = start_index + self._get_chunk_size(chunk)
+                    start_index = doc.text.find(chunk)
+                if start_index == -1:
+                    start_index = cursor
+
+                end_index = start_index + chunk_len
+                cursor = start_index + 1
 
                 metadata = doc.metadata.copy() if doc.metadata else {}
                 metadata.update(
@@ -270,6 +275,5 @@ class SplitterBase(BaseModel, ABC):
                     }
                 )
                 chunked_documents.append(Document(metadata=metadata, text=chunk))
-                previous_end = end_index
 
         return chunked_documents

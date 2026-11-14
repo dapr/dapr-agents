@@ -12,6 +12,7 @@
 #
 
 from dapr_agents.document.splitter.text import TextSplitter
+from dapr_agents.types.document import Document
 
 
 def test_merge_splits_does_not_drop_content_that_triggers_finalization():
@@ -75,3 +76,67 @@ def test_split_long_text_preserves_all_content():
         assert any(f"paragraph {i} " in chunk for chunk in chunks), (
             f"paragraph {i} missing from output chunks"
         )
+
+
+def test_split_documents_preserves_source_offsets_with_overlap():
+    source = "alpha beta gamma"
+    splitter = TextSplitter(chunk_size=11, chunk_overlap=5)
+    chunks = splitter.split_documents([Document(text=source)])
+
+    assert len(chunks) == 2
+    for chunk in chunks:
+        start = chunk.metadata["start_index"]
+        end = chunk.metadata["end_index"]
+        assert source[start:end] == chunk.text
+
+    assert chunks[0].text == "alpha beta "
+    assert (chunks[0].metadata["start_index"], chunks[0].metadata["end_index"]) == (
+        0,
+        11,
+    )
+    assert chunks[1].text == "beta gamma"
+    assert (chunks[1].metadata["start_index"], chunks[1].metadata["end_index"]) == (
+        6,
+        16,
+    )
+
+
+def test_split_documents_preserves_character_offsets_with_custom_sizing_function():
+    source = "alpha beta gamma delta"
+    splitter = TextSplitter(
+        chunk_size=2,
+        chunk_overlap=0,
+        chunk_size_function=lambda s: len(s.split()),
+    )
+    chunks = splitter.split_documents([Document(text=source)])
+
+    assert len(chunks) == 2
+    for chunk in chunks:
+        start = chunk.metadata["start_index"]
+        end = chunk.metadata["end_index"]
+        assert source[start:end] == chunk.text
+        assert chunk.metadata["chunk_length"] == 2
+
+    assert (chunks[0].metadata["start_index"], chunks[0].metadata["end_index"]) == (
+        0,
+        11,
+    )
+    assert (chunks[1].metadata["start_index"], chunks[1].metadata["end_index"]) == (
+        11,
+        22,
+    )
+
+
+def test_split_documents_preserves_offsets_with_repeated_phrases():
+    source = "item item item item"
+    splitter = TextSplitter(chunk_size=10, chunk_overlap=4, separator=" ")
+    chunks = splitter.split_documents([Document(text=source)])
+
+    assert len(chunks) > 1
+    last_start = -1
+    for chunk in chunks:
+        start = chunk.metadata["start_index"]
+        end = chunk.metadata["end_index"]
+        assert start > last_start
+        assert source[start:end] == chunk.text
+        last_start = start
