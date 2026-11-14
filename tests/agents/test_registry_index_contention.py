@@ -21,6 +21,7 @@ conflicts are guaranteed. These tests reproduce that contention and assert that
 every writer converges — no agent is dropped from or stuck in the index.
 """
 
+import logging
 import threading
 
 import pytest
@@ -201,8 +202,16 @@ def test_mutate_team_index_does_not_retry_invalid_state(caplog):
 
     assert ok is False
     assert load_calls["n"] == 1
-    assert not any("Conflict" in r.getMessage() for r in caplog.records)
-    assert any(r.levelname == "ERROR" for r in caplog.records)
+    assert not any(
+        r.levelno == logging.WARNING and "Conflict" in r.getMessage()
+        for r in caplog.records
+    )
+    assert any(
+        r.levelno == logging.ERROR
+        and index_key in r.getMessage()
+        and "invalid state" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 def test_mutate_team_index_does_not_retry_programming_errors(caplog):
@@ -227,8 +236,16 @@ def test_mutate_team_index_does_not_retry_programming_errors(caplog):
 
     assert ok is False
     assert mutate_calls["n"] == 1
-    assert not any("Conflict" in r.getMessage() for r in caplog.records)
-    assert any(r.levelname == "ERROR" for r in caplog.records)
+    assert not any(
+        r.levelno == logging.WARNING and "Conflict" in r.getMessage()
+        for r in caplog.records
+    )
+    assert any(
+        r.levelno == logging.ERROR
+        and index_key in r.getMessage()
+        and "Unexpected error updating registry index" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 def test_mutate_team_index_retries_then_succeeds():

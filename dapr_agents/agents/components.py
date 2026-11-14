@@ -883,11 +883,10 @@ class DaprInfra:
                     state_options=self._save_options,
                 )
                 return True
-            except InvalidStateError as exc:
+            except InvalidStateError:
                 logger.error(
-                    "Registry index '%s' holds invalid state; not retrying: %s",
+                    "Registry index '%s' holds invalid state; not retrying",
                     index_key,
-                    exc,
                     exc_info=True,
                 )
                 return False
@@ -903,11 +902,10 @@ class DaprInfra:
                     exc,
                 )
                 self._sleep_index_backoff(attempt, deadline)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 logger.error(
-                    "Unexpected error updating registry index '%s'; not retrying: %s",
+                    "Unexpected error updating registry index '%s'; not retrying",
                     index_key,
-                    exc,
                     exc_info=True,
                 )
                 return False

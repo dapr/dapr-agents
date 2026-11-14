@@ -250,6 +250,12 @@ class StateStoreService:
 
         Returns:
             Dict payload or model instance.
+
+        Raises:
+            InvalidStateError: The stored value is not valid JSON, is not a dict,
+                or fails model validation. Retrying the read cannot help.
+            StateStoreError: The read itself failed (for example a backend error),
+                which may succeed on retry.
         """
         qualified = self._qualify(key)
         logger.debug("Loading state from %s key=%s", self.store_name, qualified)
@@ -303,6 +309,12 @@ class StateStoreService:
 
         Returns:
             (dict_or_model, etag_or_none)
+
+        Raises:
+            InvalidStateError: The stored value is not valid JSON, is not a dict,
+                or fails model validation. Retrying the read cannot help.
+            StateStoreError: The read itself failed (for example a backend error),
+                which may succeed on retry.
         """
         qualified = self._qualify(key)
         logger.debug(
