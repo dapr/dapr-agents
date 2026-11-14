@@ -36,6 +36,10 @@ from dapr_agents.agents.configs import (
     WorkflowGrpcOptions,
     StateModelBundle,
 )
+from dapr_agents.storage.daprstores.stateservice import (
+    InvalidStateError,
+    StateStoreError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -879,7 +883,14 @@ class DaprInfra:
                     state_options=self._save_options,
                 )
                 return True
-            except Exception as exc:  # noqa: BLE001
+            except InvalidStateError:
+                logger.error(
+                    "Registry index '%s' holds invalid state; not retrying",
+                    index_key,
+                    exc_info=True,
+                )
+                return False
+            except StateStoreError as exc:
                 last_exc = exc
                 if attempt >= cfg.max_attempts or time.monotonic() >= deadline:
                     break
@@ -891,6 +902,13 @@ class DaprInfra:
                     exc,
                 )
                 self._sleep_index_backoff(attempt, deadline)
+            except Exception:  # noqa: BLE001
+                logger.error(
+                    "Unexpected error updating registry index '%s'; not retrying",
+                    index_key,
+                    exc_info=True,
+                )
+                return False
 
         logger.error(
             "Failed to update registry index '%s' after %d attempt(s): %s",
