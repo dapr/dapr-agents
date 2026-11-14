@@ -278,25 +278,27 @@ class AssistantMessageAccumulator:
             buf.merge(tc)
         if metadata:
             if isinstance(metadata, dict):
-                merged = dict(metadata)
+                # unwrap() returns a detached metadata dictionary, so in-place
+                # mutation is safe and avoids redundant top-level allocations on
+                # the streaming hot path.
                 previous_usage = (
                     self._last_metadata.get("usage")
                     if isinstance(self._last_metadata, dict)
                     else None
                 )
-                current_usage = metadata.get("usage")
 
                 # Merge partial usage metadata because token counts may be split across stream chunks
                 if isinstance(previous_usage, dict):
+                    current_usage = metadata.get("usage")
                     if isinstance(current_usage, dict):
-                        merged["usage"] = {
+                        metadata["usage"] = {
                             **previous_usage,
                             **current_usage,
                         }
                     elif current_usage is None:
-                        merged["usage"] = previous_usage
+                        metadata["usage"] = previous_usage
 
-                self._last_metadata = merged
+                self._last_metadata = metadata
             else:
                 self._last_metadata = metadata
         return candidate

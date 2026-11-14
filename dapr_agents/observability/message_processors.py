@@ -528,11 +528,14 @@ def _get_cache_creation_token_count(usage: Any) -> Optional[int]:
 
 def _get_cache_read_token_count(usage: Any) -> Optional[int]:
     """Return cache read token count, or None when unavailable."""
+    # Prefer OpenAI-style cached tokens in prompt_tokens_details when present.
     prompt_details = _get_usage_value(usage, "prompt_tokens_details")
     if prompt_details is not None:
         cached = _coerce_token_count(_get_usage_value(prompt_details, "cached_tokens"))
         if cached is not None:
             return cached
+
+    # Fall back to Anthropic's cache_read_input_tokens field.
     return _coerce_token_count(_get_usage_value(usage, "cache_read_input_tokens"))
 
 
