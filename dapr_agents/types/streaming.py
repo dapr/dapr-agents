@@ -277,7 +277,29 @@ class AssistantMessageAccumulator:
                 self._tool_calls[tc.index] = buf
             buf.merge(tc)
         if metadata:
-            self._last_metadata = metadata
+            if isinstance(metadata, dict):
+                # unwrap() returns a shallow copy of the metadata,
+                # so mutating its top-level fields in place is safe.
+                previous_usage = (
+                    self._last_metadata.get("usage")
+                    if isinstance(self._last_metadata, dict)
+                    else None
+                )
+
+                # Merge partial usage metadata because token counts may be split across stream chunks
+                if isinstance(previous_usage, dict):
+                    current_usage = metadata.get("usage")
+                    if isinstance(current_usage, dict):
+                        metadata["usage"] = {
+                            **previous_usage,
+                            **current_usage,
+                        }
+                    elif current_usage is None:
+                        metadata["usage"] = previous_usage
+
+                self._last_metadata = metadata
+            else:
+                self._last_metadata = metadata
         return candidate
 
     # -- readers -----------------------------------------------------------

@@ -29,11 +29,19 @@ from typing import Any, Dict
 from ..constants import (
     GEN_AI_OUTPUT_MESSAGES,
     GEN_AI_RESPONSE_FINISH_REASONS,
+    GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+    GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
     GEN_AI_USAGE_INPUT_TOKENS,
     GEN_AI_USAGE_OUTPUT_TOKENS,
     Status,
     StatusCode,
     safe_json_dumps,
+)
+from ..message_processors import (
+    _get_cache_creation_token_count,
+    _get_cache_read_token_count,
+    _get_input_token_count,
+    _get_output_token_count,
 )
 from dapr_agents.types.message import LLMChatResponse
 from dapr_agents.types.streaming import AssistantMessageAccumulator
@@ -315,15 +323,32 @@ class LLMStreamingMixin:
                     GEN_AI_RESPONSE_FINISH_REASONS,
                     safe_json_dumps([str(finish_reason)]),
                 )
-            usage = metadata.get("usage") if metadata else None
-            if isinstance(usage, dict):
-                if "prompt_tokens" in usage:
+            usage = (
+                (
+                    metadata.get("usage")
+                    if isinstance(metadata, dict)
+                    else getattr(metadata, "usage", None)
+                )
+                if metadata
+                else None
+            )
+            if usage is not None:
+                input_tokens = _get_input_token_count(usage)
+                if input_tokens is not None:
+                    span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
+
+                output_tokens = _get_output_token_count(usage)
+                if output_tokens is not None:
+                    span.set_attribute(GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
+
+                cache_creation = _get_cache_creation_token_count(usage)
+                if cache_creation is not None:
                     span.set_attribute(
-                        GEN_AI_USAGE_INPUT_TOKENS, int(usage["prompt_tokens"])
+                        GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS, cache_creation
                     )
-                if "completion_tokens" in usage:
-                    span.set_attribute(
-                        GEN_AI_USAGE_OUTPUT_TOKENS, int(usage["completion_tokens"])
-                    )
+
+                cache_read = _get_cache_read_token_count(usage)
+                if cache_read is not None:
+                    span.set_attribute(GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS, cache_read)
         except Exception as exc:  # noqa: BLE001 - never break the stream
             logger.debug("LLMWrapper streaming attribute set failed: %s", exc)

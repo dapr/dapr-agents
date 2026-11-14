@@ -29,6 +29,8 @@ Key Functions:
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from dapr_agents.utils._config import coerce_integral
+
 from .constants import (
     LLM_OUTPUT_MESSAGES,
     LLM_TOKEN_COUNT_COMPLETION,
@@ -439,11 +441,15 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     attributes = {}
 
     try:
+        usage = None
         if isinstance(metadata, dict) and "usage" in metadata:
             usage = metadata["usage"]
-            attributes.update(extract_usage_from_dict(usage))
         elif hasattr(metadata, "usage"):
             usage = metadata.usage
+
+        if isinstance(usage, dict):
+            attributes.update(extract_usage_from_dict(usage))
+        elif usage is not None:
             attributes.update(extract_usage_from_object(usage))
     except Exception as e:
         logger.debug(f"Could not extract token counts: {e}")
@@ -451,27 +457,115 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     return attributes
 
 
+def _get_usage_value(usage: Any, key: str) -> Any:
+    """Extract a value from a usage dict or object."""
+    if isinstance(usage, dict):
+        return usage.get(key)
+    return getattr(usage, key, None)
+
+
+def _coerce_token_count(value: Any) -> Optional[int]:
+    """Return a non-negative token count, or None for invalid values."""
+    if value is None:
+        return None
+    try:
+        count = coerce_integral(value)
+    except (ValueError, TypeError):
+        return None
+    return count if count >= 0 else None
+
+
+def _get_input_token_count(usage: Any) -> Optional[int]:
+    """Return aggregate input tokens including cache-related tokens, or None when unavailable."""
+    # Prefer the OpenAI-style aggregate input-token field when present.
+    prompt_tokens = _coerce_token_count(_get_usage_value(usage, "prompt_tokens"))
+    if prompt_tokens is not None:
+        return prompt_tokens
+
+    # Fall back to Anthropic's input-token field, which excludes cache-related tokens.
+    input_tokens = _coerce_token_count(_get_usage_value(usage, "input_tokens"))
+    if input_tokens is None:
+        return None
+
+    # Anthropic reports cache-read and cache-creation tokens separately from
+    # input_tokens; include them in the aggregate input count.
+    cache_creation_input_tokens = (
+        _coerce_token_count(_get_usage_value(usage, "cache_creation_input_tokens")) or 0
+    )
+    cache_read_input_tokens = (
+        _coerce_token_count(_get_usage_value(usage, "cache_read_input_tokens")) or 0
+    )
+
+    return input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+
+
+def _get_output_token_count(usage: Any) -> Optional[int]:
+    """Return output token count, or None when unavailable."""
+    completion_tokens = _coerce_token_count(
+        _get_usage_value(usage, "completion_tokens")
+    )
+    if completion_tokens is not None:
+        return completion_tokens
+    return _coerce_token_count(_get_usage_value(usage, "output_tokens"))
+
+
+def _get_total_token_count(usage: Any) -> Optional[int]:
+    """Return total token count, or None when unavailable."""
+    total_tokens = _coerce_token_count(_get_usage_value(usage, "total_tokens"))
+    if total_tokens is not None:
+        return total_tokens
+    input_cnt = _get_input_token_count(usage)
+    output_cnt = _get_output_token_count(usage)
+    if input_cnt is not None and output_cnt is not None:
+        return input_cnt + output_cnt
+    return None
+
+
+def _get_cache_creation_token_count(usage: Any) -> Optional[int]:
+    """Return cache creation token count, or None when unavailable."""
+    return _coerce_token_count(_get_usage_value(usage, "cache_creation_input_tokens"))
+
+
+def _get_cache_read_token_count(usage: Any) -> Optional[int]:
+    """Return cache read token count, or None when unavailable."""
+    # Prefer OpenAI-style cached tokens in prompt_tokens_details when present.
+    prompt_details = _get_usage_value(usage, "prompt_tokens_details")
+    if prompt_details is not None:
+        cached = _coerce_token_count(_get_usage_value(prompt_details, "cached_tokens"))
+        if cached is not None:
+            return cached
+
+    # Fall back to Anthropic's cache_read_input_tokens field.
+    return _coerce_token_count(_get_usage_value(usage, "cache_read_input_tokens"))
+
+
 def extract_usage_from_dict(usage: Dict[str, Any]) -> Dict[str, Any]:
     """Extract usage attributes from dictionary."""
-    attributes = {}
-    if "prompt_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_PROMPT] = usage["prompt_tokens"]
-    if "completion_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage["completion_tokens"]
-    if "total_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_TOTAL] = usage["total_tokens"]
+    attributes: Dict[str, Any] = {}
+    input_tokens = _get_input_token_count(usage)
+    if input_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = input_tokens
+    output_tokens = _get_output_token_count(usage)
+    if output_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = output_tokens
+    total_tokens = _get_total_token_count(usage)
+    if total_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_TOTAL] = total_tokens
     return attributes
 
 
 def extract_usage_from_object(usage: Any) -> Dict[str, Any]:
     """Extract usage attributes from object."""
-    attributes = {}
-    if hasattr(usage, "prompt_tokens"):
-        attributes[LLM_TOKEN_COUNT_PROMPT] = usage.prompt_tokens
-    if hasattr(usage, "completion_tokens"):
-        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage.completion_tokens
-    if hasattr(usage, "total_tokens"):
-        attributes[LLM_TOKEN_COUNT_TOTAL] = usage.total_tokens
+    attributes: Dict[str, Any] = {}
+    input_tokens = _get_input_token_count(usage)
+    if input_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = input_tokens
+    output_tokens = _get_output_token_count(usage)
+    if output_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = output_tokens
+    total_tokens = _get_total_token_count(usage)
+    if total_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_TOTAL] = total_tokens
     return attributes
 
 
