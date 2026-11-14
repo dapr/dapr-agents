@@ -278,9 +278,8 @@ class AssistantMessageAccumulator:
             buf.merge(tc)
         if metadata:
             if isinstance(metadata, dict):
-                # unwrap() returns a detached metadata dictionary, so in-place
-                # mutation is safe and avoids redundant top-level allocations on
-                # the streaming hot path.
+                # unwrap() returns a shallow copy of the metadata,
+                # so mutating its top-level fields in place is safe.
                 previous_usage = (
                     self._last_metadata.get("usage")
                     if isinstance(self._last_metadata, dict)
