@@ -18,10 +18,24 @@ Installing the drasi extra must not break importing dapr_agents from directories
 outside the repository root (e.g. temporary directories, quickstarts, examples).
 """
 
+import importlib
+import os
 import subprocess
 import sys
 import tempfile
 import textwrap
+
+import pytest
+
+REQUIRE_DRASI_ENV_VAR = "DAPR_AGENTS_REQUIRE_DRASI"
+
+try:
+    importlib.import_module("dapr_agents.ext.drasi")
+    DRASI_AVAILABLE = True
+except ImportError:
+    DRASI_AVAILABLE = False
+
+DRASI_REQUIRED = os.environ.get(REQUIRE_DRASI_ENV_VAR) == "1"
 
 
 def _run_outside_repo(code: str) -> subprocess.CompletedProcess:
@@ -51,6 +65,15 @@ def test_dapr_agents_import_outside_repo_root():
     assert result.stdout.strip() == "ok"
 
 
+@pytest.mark.skipif(
+    not DRASI_AVAILABLE and not DRASI_REQUIRED,
+    reason=(
+        "dapr-agents-ext-drasi is not available. "
+        "To run this test, install the extension with: "
+        "`uv sync --group test --extra drasi` "
+        f"or set {REQUIRE_DRASI_ENV_VAR}=1."
+    ),
+)
 def test_drasi_extension_import_outside_repo_root():
     result = _run_outside_repo(
         """
