@@ -258,11 +258,12 @@ class SplitterBase(BaseModel, ABC):
                 start_index = doc.text.find(chunk, cursor)
                 if start_index == -1:
                     start_index = doc.text.find(chunk)
-                if start_index == -1:
-                    start_index = cursor
 
-                end_index = start_index + chunk_len
-                cursor = start_index + 1
+                if start_index != -1:
+                    end_index = start_index + chunk_len
+                    cursor = start_index + 1
+                else:
+                    end_index = -1
 
                 metadata = doc.metadata.copy() if doc.metadata else {}
                 metadata.update(

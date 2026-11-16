@@ -140,3 +140,14 @@ def test_split_documents_preserves_offsets_with_repeated_phrases():
         assert start > last_start
         assert source[start:end] == chunk.text
         last_start = start
+
+
+def test_split_documents_reports_negative_offsets_when_chunk_not_in_source():
+    source = "a  b  c  d  e  f  g  h  i  j  k  l"
+    splitter = TextSplitter(chunk_size=8, chunk_overlap=3, separator=" ")
+    chunks = splitter.split_documents([Document(text=source)])
+
+    assert len(chunks) > 1
+    for chunk in chunks:
+        assert chunk.metadata["start_index"] == -1
+        assert chunk.metadata["end_index"] == -1
