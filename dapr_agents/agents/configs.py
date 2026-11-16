@@ -1212,7 +1212,7 @@ class AgentObservabilityConfig:
             ),
             _EnvConfigKey.OTEL_EXPORTER_OTLP_HEADERS: config_utils.ConfigFieldDescriptor(
                 target_type=Optional[str],
-                setter=lambda obj, v: setattr(obj, "headers", v),
+                setter=lambda obj, v: setattr(obj, "headers", v or {}),
                 getter=lambda: config_utils.get_config_value(
                     os.environ, "OTEL_EXPORTER_OTLP_HEADERS"
                 ),
