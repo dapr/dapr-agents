@@ -11,8 +11,11 @@
 # limitations under the License.
 #
 
-from importlib.metadata import version, PackageNotFoundError
+import pkgutil
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
+
+__path__ = pkgutil.extend_path(__path__, __name__)
 
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.agents.configs import (

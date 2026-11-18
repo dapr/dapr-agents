@@ -75,5 +75,10 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 
+[tool.uv]
+# Workspace root config-settings applies when synced from the repository root;
+# this entry ensures compat editable mode is also used if this package is synced on its own.
+config-settings = { editable_mode = "compat" }
+
 [tool.uv.sources]
 dapr-agents = { workspace = true, editable = true }
