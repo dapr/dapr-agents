@@ -142,12 +142,40 @@ def test_split_documents_preserves_offsets_with_repeated_phrases():
         last_start = start
 
 
-def test_split_documents_reports_negative_offsets_when_chunk_not_in_source():
+def test_split_documents_reports_none_offsets_when_chunk_not_in_source():
     source = "a  b  c  d  e  f  g  h  i  j  k  l"
     splitter = TextSplitter(chunk_size=8, chunk_overlap=3, separator=" ")
     chunks = splitter.split_documents([Document(text=source)])
 
     assert len(chunks) > 1
     for chunk in chunks:
-        assert chunk.metadata["start_index"] == -1
-        assert chunk.metadata["end_index"] == -1
+        assert chunk.metadata["start_index"] is None
+        assert chunk.metadata["end_index"] is None
+
+
+def test_split_documents_does_not_jump_backwards_on_duplicate_phrases():
+    # In repetitive text, if a chunk cannot be found past cursor, it must not jump backward
+    # to an earlier occurrence at position 0.
+    class CustomSplitter(TextSplitter):
+        def split(self, text: str):
+            # Emits first chunk matching position 0, then an unmatchable chunk that contains
+            # the same prefix as earlier, then a third chunk that matches later.
+            return ["hello world", "unmatched piece", "repeated text"]
+
+    source = "hello world and some other content with repeated text"
+    splitter = CustomSplitter(chunk_size=20)
+    chunks = splitter.split_documents([Document(text=source)])
+
+    assert len(chunks) == 3
+    assert chunks[0].metadata["start_index"] == 0
+    assert chunks[0].metadata["end_index"] == 11
+
+    # Unmatched chunk must be None, not jumping backward
+    assert chunks[1].metadata["start_index"] is None
+    assert chunks[1].metadata["end_index"] is None
+
+    # Third chunk still resolves correctly after the cursor
+    assert chunks[2].metadata["start_index"] == source.find("repeated text")
+    assert chunks[2].metadata["end_index"] == source.find("repeated text") + len(
+        "repeated text"
+    )
