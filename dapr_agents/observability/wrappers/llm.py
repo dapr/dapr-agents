@@ -40,15 +40,17 @@ from ..constants import (
     context_api,
     safe_json_dumps,
 )
+from .._token_usage import (
+    get_cache_creation_token_count,
+    get_cache_read_token_count,
+    get_input_token_count,
+    get_output_token_count,
+)
 from ..message_processors import (
     convert_messages_to_genai_format,
     convert_messages_to_openinference,
     extract_token_usage,
     extract_tool_schemas,
-    get_cache_creation_token_count,
-    get_cache_read_token_count,
-    get_input_token_count,
-    get_output_token_count,
     get_input_message_attributes,
     get_output_message_attributes,
     process_llm_response,

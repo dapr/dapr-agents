@@ -29,7 +29,13 @@ Key Functions:
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from dapr_agents.utils._config import coerce_integral
+from ._token_usage import (
+    get_cache_creation_token_count,
+    get_cache_read_token_count,
+    get_input_token_count,
+    get_output_token_count,
+    get_total_token_count,
+)
 
 from .constants import (
     LLM_OUTPUT_MESSAGES,
@@ -457,96 +463,6 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     return attributes
 
 
-def _get_usage_value(usage: Any, key: str) -> Any:
-    """Extract a value from a usage dict or object."""
-    if isinstance(usage, dict):
-        return usage.get(key)
-    return getattr(usage, key, None)
-
-
-def _coerce_token_count(value: Any) -> Optional[int]:
-    """Return a non-negative token count, or None for invalid values."""
-    if value is None:
-        return None
-    try:
-        count = coerce_integral(value)
-    except (ValueError, TypeError):
-        return None
-    return count if count >= 0 else None
-
-
-def get_input_token_count(usage: Any) -> Optional[int]:
-    """Return aggregate input tokens including cache-related tokens, or None when unavailable."""
-    # Prefer the OpenAI-style aggregate input-token field when present.
-    prompt_tokens = _coerce_token_count(_get_usage_value(usage, "prompt_tokens"))
-    if prompt_tokens is not None:
-        return prompt_tokens
-
-    # Fall back to Anthropic's input-token field, which excludes cache-related tokens.
-    input_tokens = _coerce_token_count(_get_usage_value(usage, "input_tokens"))
-    if input_tokens is None:
-        return None
-
-    # Anthropic reports cache-read and cache-creation tokens separately from
-    # input_tokens; include them in the aggregate input count.
-    cache_creation_input_tokens = (
-        _coerce_token_count(_get_usage_value(usage, "cache_creation_input_tokens")) or 0
-    )
-    cache_read_input_tokens = (
-        _coerce_token_count(_get_usage_value(usage, "cache_read_input_tokens")) or 0
-    )
-
-    return input_tokens + cache_creation_input_tokens + cache_read_input_tokens
-
-
-def get_output_token_count(usage: Any) -> Optional[int]:
-    """Return output token count, or None when unavailable."""
-    completion_tokens = _coerce_token_count(
-        _get_usage_value(usage, "completion_tokens")
-    )
-    if completion_tokens is not None:
-        return completion_tokens
-    return _coerce_token_count(_get_usage_value(usage, "output_tokens"))
-
-
-def get_total_token_count(usage: Any) -> Optional[int]:
-    """Return total token count, or None when unavailable."""
-    total_tokens = _coerce_token_count(_get_usage_value(usage, "total_tokens"))
-    if total_tokens is not None:
-        return total_tokens
-    input_cnt = get_input_token_count(usage)
-    output_cnt = get_output_token_count(usage)
-    if input_cnt is not None and output_cnt is not None:
-        return input_cnt + output_cnt
-    return None
-
-
-def get_cache_creation_token_count(usage: Any) -> Optional[int]:
-    """Return cache creation token count, or None when unavailable."""
-    return _coerce_token_count(_get_usage_value(usage, "cache_creation_input_tokens"))
-
-
-def get_cache_read_token_count(usage: Any) -> Optional[int]:
-    """Return cache read token count, or None when unavailable."""
-    # Prefer OpenAI-style cached tokens in prompt_tokens_details when present.
-    prompt_details = _get_usage_value(usage, "prompt_tokens_details")
-    if prompt_details is not None:
-        cached = _coerce_token_count(_get_usage_value(prompt_details, "cached_tokens"))
-        if cached is not None:
-            return cached
-
-    # Fall back to Anthropic's cache_read_input_tokens field.
-    return _coerce_token_count(_get_usage_value(usage, "cache_read_input_tokens"))
-
-
-# Backward compatibility aliases
-_get_input_token_count = get_input_token_count
-_get_output_token_count = get_output_token_count
-_get_total_token_count = get_total_token_count
-_get_cache_creation_token_count = get_cache_creation_token_count
-_get_cache_read_token_count = get_cache_read_token_count
-
-
 def extract_usage_from_dict(usage: Dict[str, Any]) -> Dict[str, Any]:
     """Extract usage attributes from dictionary."""
     attributes: Dict[str, Any] = {}
@@ -657,9 +573,4 @@ __all__ = [
     "extract_usage_from_dict",
     "extract_usage_from_object",
     "convert_messages_to_genai_format",
-    "get_input_token_count",
-    "get_output_token_count",
-    "get_total_token_count",
-    "get_cache_creation_token_count",
-    "get_cache_read_token_count",
 ]
