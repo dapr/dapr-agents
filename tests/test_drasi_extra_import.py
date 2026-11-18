@@ -18,7 +18,7 @@ Installing the drasi extra must not break importing dapr_agents from directories
 outside the repository root (e.g. temporary directories, quickstarts, examples).
 """
 
-import importlib
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -30,9 +30,9 @@ import pytest
 REQUIRE_DRASI_ENV_VAR = "DAPR_AGENTS_REQUIRE_DRASI"
 
 try:
-    importlib.import_module("dapr_agents.ext.drasi")
+    importlib.metadata.version("dapr-agents-ext-drasi")
     DRASI_AVAILABLE = True
-except ImportError:
+except importlib.metadata.PackageNotFoundError:
     DRASI_AVAILABLE = False
 
 DRASI_REQUIRED = os.environ.get(REQUIRE_DRASI_ENV_VAR) == "1"
@@ -45,6 +45,7 @@ def _run_outside_repo(code: str) -> subprocess.CompletedProcess:
             cwd=tmp_dir,
             capture_output=True,
             text=True,
+            check=False,
             timeout=60,
         )
 

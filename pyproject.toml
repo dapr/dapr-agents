@@ -130,6 +130,11 @@ vectorstore = {requires-python = ">=3.11,<3.14"}
 
 [tool.uv]
 exclude-newer = "7 days"
+# Use setuptools' compat editable mode (generating static .pth entries) to prevent
+# setuptools from generating a sys.path_hooks namespace finder in dapr-agents-ext-drasi
+# that shadows the root dapr_agents package when imported from outside the repo root (#938).
+# Revisit if the extension moves under an independent top-level namespace or setuptools
+# resolves editable namespace finder precedence.
 config-settings = { editable_mode = "compat" }
 
 [tool.uv.exclude-newer-package]
