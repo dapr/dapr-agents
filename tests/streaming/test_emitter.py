@@ -266,12 +266,19 @@ class TestAssistantMessageAccumulator:
                 metadata={"event_id": "evt-2"},
             )
         )
+        # Simulate an Anthropic message_delta chunk where model_dump() includes
+        # optional input/cache fields as explicit None.
         acc.ingest(
             LLMChatResponseChunk(
                 result=LLMChatCandidateChunk(content="c"),
                 metadata={
                     "event_id": "evt-3",
-                    "usage": {"output_tokens": 15},
+                    "usage": {
+                        "output_tokens": 15,
+                        "input_tokens": None,
+                        "cache_creation_input_tokens": None,
+                        "cache_read_input_tokens": None,
+                    },
                 },
             )
         )

@@ -292,14 +292,12 @@ class AssistantMessageAccumulator:
                     if isinstance(current_usage, dict):
                         metadata["usage"] = {
                             **previous_usage,
-                            **current_usage,
+                            **{k: v for k, v in current_usage.items() if v is not None},
                         }
                     elif current_usage is None:
                         metadata["usage"] = previous_usage
 
-                self._last_metadata = metadata
-            else:
-                self._last_metadata = metadata
+            self._last_metadata = metadata
         return candidate
 
     # -- readers -----------------------------------------------------------

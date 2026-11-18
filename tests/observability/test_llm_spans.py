@@ -526,6 +526,9 @@ class TestEndToEndLLMWrapper:
                 metadata={
                     "usage": {
                         "output_tokens": 20,
+                        "input_tokens": None,
+                        "cache_creation_input_tokens": None,
+                        "cache_read_input_tokens": None,
                     }
                 },
             ),
