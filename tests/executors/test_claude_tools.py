@@ -13,6 +13,9 @@
 
 """Tests for the dapr-agents tool bridge and the PreToolUse approval gate."""
 
+import asyncio
+import threading
+
 import pytest
 
 pytest.importorskip("claude_agent_sdk")
@@ -101,6 +104,32 @@ class TestToolServer:
         out = await _to_sdk_tool(broken).handler({})
         assert out["is_error"] is True
         assert "tool exploded" in out["content"][0]["text"]
+
+    async def test_handler_runs_async_tools(self):
+        @tool
+        async def echo(text: str) -> str:
+            """Echo text."""
+            await asyncio.sleep(0)
+            return text
+
+        out = await _to_sdk_tool(echo).handler({"text": "hi"})
+        assert out == {"content": [{"type": "text", "text": "hi"}]}
+
+    async def test_parallel_calls_to_a_sync_tool_overlap(self):
+        # Each call waits until both have started. This only works when the
+        # calls run at the same time and neither blocks the event loop.
+        both_started = threading.Barrier(2, timeout=2)
+
+        @tool
+        def wait_for_other(n: int) -> str:
+            """Wait until the other call has started."""
+            both_started.wait()
+            return str(n)
+
+        handler = _to_sdk_tool(wait_for_other).handler
+        outs = await asyncio.gather(handler({"n": 1}), handler({"n": 2}))
+        assert [out.get("is_error") for out in outs] == [None, None]
+        assert [out["content"][0]["text"] for out in outs] == ["1", "2"]
 
 
 class TestToolGate:

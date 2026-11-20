@@ -241,6 +241,11 @@ A few settings matter:
   Claude Code's own tools (`Bash`, `Read`, `Edit`, ...) and does not load
   settings files from the host. Claude can only use the tools you give it.
   Use `builtin_tools` and `allowed_tools` in the config to opt in.
+* **Parallel tool calls.** When Claude asks for several tool calls in one
+  message, they run at the same time. A sync tool runs in a worker thread,
+  so it must be safe to call from more than one thread at once. Do not share
+  a SQLite connection, a client or a counter that is not thread-safe across
+  calls. Async tools run on the event loop.
 * **One tool call at a time for gated tools.** Claude only pauses a tool
   call cleanly when it is the only call in its message, so the agent's
   instructions ask for one tool at a time. If Claude still batches calls, the

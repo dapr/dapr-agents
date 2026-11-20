@@ -26,6 +26,7 @@ Only import this module after ``claude_agent_sdk`` is known to be installed.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import inspect
 import json
@@ -89,7 +90,13 @@ def _to_sdk_tool(
         if recorded is not None:
             return {"content": [{"type": "text", "text": recorded}]}
         try:
-            result = await agent_tool.arun(**(args or {}))
+            if agent_tool._is_async:
+                result = await agent_tool.arun(**(args or {}))
+            else:
+                # The SDK serves parallel tool calls as concurrent tasks. A sync
+                # tool run on the event loop would block the others, so it runs
+                # in a worker thread instead.
+                result = await asyncio.to_thread(agent_tool.run, **(args or {}))
         except Exception as exc:  # noqa: BLE001 - reported to the model
             logger.warning("Tool %s failed: %s", agent_tool.name, exc)
             return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}

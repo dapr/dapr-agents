@@ -155,6 +155,11 @@ class ClaudeAgentExecutor(AgentExecutorBase):
     hooks and a ``DaprSessionStore`` on the agent's state store, for every
     setting left unset in ``config``.
 
+    When Claude asks for several tool calls in one message, the calls run at
+    the same time. Sync tools run in worker threads, so a sync tool must be
+    safe to call from more than one thread at once. Async tools run on the
+    event loop.
+
     Example:
         executor = ClaudeAgentExecutor(
             ClaudeAgentExecutorConfig(model="claude-sonnet-4-5")
