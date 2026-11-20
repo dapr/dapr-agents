@@ -25,6 +25,7 @@ from dapr_agents.streaming.emitter import (
     StreamEmitter,
 )
 from dapr_agents.types.message import (
+    AssistantMessage,
     FunctionCallChunk,
     LLMChatCandidateChunk,
     LLMChatResponseChunk,
@@ -206,6 +207,37 @@ class TestAssistantMessageAccumulator:
         assert [tc["id"] for tc in msg["tool_calls"]] == ["call_a", "call_b"]
         assert msg["tool_calls"][0]["function"]["arguments"] == '{"q":"py"}'
         assert msg["tool_calls"][1]["function"]["arguments"] == '{"text":"hi"}'
+
+    def test_tool_call_without_argument_text_gets_empty_object(self) -> None:
+        """A call to a tool without parameters can stream no argument text,
+        as Anthropic does. The result must still be a valid tool call, or the
+        saved conversation fails validation on the next state read."""
+        acc = AssistantMessageAccumulator()
+        acc.ingest(
+            _packet(
+                tool_calls=[
+                    ToolCallChunk(
+                        index=0,
+                        id="toolu_1",
+                        type="function",
+                        function=FunctionCallChunk(name="get_time", arguments=""),
+                    )
+                ]
+            )
+        )
+        acc.ingest(
+            _packet(
+                tool_calls=[
+                    ToolCallChunk(index=0, function=FunctionCallChunk(arguments=""))
+                ]
+            )
+        )
+        acc.ingest(_packet(finish_reason="tool_use"))
+        msg = acc.assistant_message()
+        assert msg["tool_calls"][0]["function"]["arguments"] == "{}"
+        # The accumulated message must survive the same validation the
+        # workflow state applies when it is read back.
+        AssistantMessage(**msg)
 
     def test_empty_tool_call_fragment_produces_no_tool_calls(self) -> None:
         """Finish-reason-only packet without any preceding tool_call fragments
