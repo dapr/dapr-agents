@@ -362,7 +362,6 @@ git push --no-verify
 - Runtime depends on the environment and test suite; pre-push hooks run both unit-test suites
 - `make hooks-run-all` also runs integration tests and requires their prerequisites
 - Python formatting, linting, type checking, and tests run across their configured paths rather than only staged files
-- Integration tests NOT included in pre-push hooks (too slow - use `make hooks-run-all` for comprehensive local check)
 
 ## Development Workflow
 
