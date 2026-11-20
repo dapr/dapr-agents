@@ -18,9 +18,13 @@ from dapr_agents.types.message import (
     ToolMessage,
     BaseMessage,
 )
-from dapr_agents.prompt.engine import TemplateEngine
+from dapr_agents.prompt.engine import (
+    TemplateEngine,
+    extract_fstring_variables,
+    extract_jinja_variables,
+)
 from typing import Dict, Any, Tuple, Optional, Union, List, Literal
-from jinja2 import TemplateError
+from jinja2 import Template, TemplateError
 from pathlib import Path
 import yaml
 import re
@@ -421,3 +425,12 @@ class PromptyHelper:
                 - For "jinja2" format: A list of undeclared variables.
         """
         return TemplateEngine.extract_variables(content, template_format)
+
+
+__all__ = [
+    "RoleMap",
+    "PromptyHelper",
+    "extract_fstring_variables",
+    "extract_jinja_variables",
+    "Template",
+]

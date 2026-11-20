@@ -19,6 +19,7 @@ from dapr_agents.prompt.chat import (
     ChatPromptHelper,
     extract_fstring_variables,
     extract_jinja_variables,
+    logger,
     render_fstring_template,
     render_jinja_template,
 )
@@ -45,4 +46,5 @@ __all__ = [
     "AssistantMessage",
     "ToolMessage",
     "MessagePlaceHolder",
+    "logger",
 ]

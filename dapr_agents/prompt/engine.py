@@ -67,6 +67,24 @@ def extract_fstring_variables(template: str) -> List[str]:
     return variables
 
 
+def _resolve_environment_and_variables(
+    template: str,
+    template_format: str,
+    environment: Any,
+    kwargs: Dict[str, Any],
+) -> Tuple[Optional[Environment], Dict[str, Any]]:
+    """Disambiguate an optional Jinja2 Environment parameter from a template variable named 'environment'."""
+    if environment is _UNSET:
+        return None, kwargs
+    if isinstance(environment, Environment):
+        return environment, kwargs
+    if environment is None:
+        if "environment" in TemplateEngine.extract_variables(template, template_format):
+            return None, {"environment": None, **kwargs}
+        return None, kwargs
+    return None, {"environment": environment, **kwargs}
+
+
 def render_jinja(
     template: str,
     environment: Optional[Environment] = cast(Optional[Environment], _UNSET),
@@ -83,18 +101,11 @@ def render_jinja(
     Returns:
         str: The rendered template string.
     """
-    if environment is _UNSET:
-        env = Environment()
-    elif isinstance(environment, Environment):
-        env = environment
-    elif environment is None:
-        if "environment" in extract_jinja_variables(template):
-            kwargs = {"environment": None, **kwargs}
-        env = Environment()
-    else:
-        kwargs = {"environment": environment, **kwargs}
-        env = Environment()
-    return env.from_string(template).render(kwargs)
+    resolved_env, resolved_kwargs = _resolve_environment_and_variables(
+        template, "jinja2", environment, kwargs
+    )
+    env = resolved_env if resolved_env is not None else Environment()
+    return env.from_string(template).render(resolved_kwargs)
 
 
 def extract_jinja_variables(
@@ -120,12 +131,12 @@ def extract_jinja_variables(
 
     # Register stubs for any undeclared filters or tests in the template AST
     # so find_undeclared_variables does not fail with TemplateAssertionError.
-    for node in parsed_content.find_all(nodes.Filter):
-        if node.name not in env.filters:
-            env.filters[node.name] = _noop_filter
-    for node in parsed_content.find_all(nodes.Test):
-        if node.name not in env.tests:
-            env.tests[node.name] = _noop_test
+    for filter_node in parsed_content.find_all(nodes.Filter):
+        if filter_node.name not in env.filters:
+            env.filters[filter_node.name] = _noop_filter
+    for test_node in parsed_content.find_all(nodes.Test):
+        if test_node.name not in env.tests:
+            env.tests[test_node.name] = _noop_test
 
     undeclared_variables = find_undeclared_variables(parsed_content)
     return sorted(undeclared_variables)
@@ -214,21 +225,12 @@ class TemplateEngine:
         """
         if template_format not in DEFAULT_FORMATTER_MAPPING:
             raise ValueError(f"Unsupported template format: {template_format}")
-        resolved_env: Optional[Environment]
-        if environment is _UNSET:
-            resolved_env = None
-        elif isinstance(environment, Environment):
-            resolved_env = environment
-        elif environment is None:
-            if "environment" in cls.extract_variables(template, template_format):
-                kwargs = {"environment": None, **kwargs}
-            resolved_env = None
-        else:
-            kwargs = {"environment": environment, **kwargs}
-            resolved_env = None
+        resolved_env, resolved_kwargs = _resolve_environment_and_variables(
+            template, template_format, environment, kwargs
+        )
         return cls.render_mapping(
             template,
-            kwargs,
+            resolved_kwargs,
             template_format=template_format,
             environment=resolved_env,
         )

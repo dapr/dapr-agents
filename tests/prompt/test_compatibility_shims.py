@@ -203,3 +203,26 @@ def test_utils_jinja_reexports():
 
     assert render_jinja_template("Hello {{ name }}", name="world") == "Hello world"
     assert extract_jinja_variables("Hello {{ name }}") == ["name"]
+
+
+def test_utils_prompty_reexports():
+    """Verify that utils/prompty.py preserves legacy module-level helper imports."""
+    from jinja2 import Template as JinjaTemplate
+
+    from dapr_agents.prompt.engine import (
+        extract_fstring_variables as engine_extract_fstring,
+        extract_jinja_variables as engine_extract_jinja,
+    )
+    from dapr_agents.prompt.utils.prompty import (
+        PromptyHelper,
+        RoleMap,
+        Template,
+        extract_fstring_variables,
+        extract_jinja_variables,
+    )
+
+    assert extract_fstring_variables is engine_extract_fstring
+    assert extract_jinja_variables is engine_extract_jinja
+    assert Template is JinjaTemplate
+    assert PromptyHelper is not None
+    assert RoleMap is not None

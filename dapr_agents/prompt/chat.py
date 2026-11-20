@@ -81,6 +81,16 @@ class ChatPromptHelper:
                 )
             return cls.create_message(role, content, message_data)
 
+        def normalize_dict_message(item: Dict[str, Any]) -> BaseMessage:
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            normalized_role = role.strip().lower() if isinstance(role, str) else None
+            if normalized_role == "tool" or (
+                normalized_role == "assistant" and item.get("tool_calls")
+            ):
+                return validate_and_create_message(role, content, item)
+            return validate_and_create_message(role, content, {})
+
         if isinstance(variable_value, str):
             normalized_messages.append(cls.create_message("user", variable_value, {}))
         elif isinstance(variable_value, list):
@@ -90,39 +100,13 @@ class ChatPromptHelper:
                 elif isinstance(item, BaseMessage):
                     normalized_messages.append(item)
                 elif isinstance(item, dict):
-                    role = item.get("role", "user")
-                    content = item.get("content", "")
-                    normalized_role = (
-                        role.strip().lower() if isinstance(role, str) else None
-                    )
-                    if normalized_role == "tool" or (
-                        normalized_role == "assistant" and item.get("tool_calls")
-                    ):
-                        normalized_messages.append(
-                            validate_and_create_message(role, content, item)
-                        )
-                    else:
-                        normalized_messages.append(
-                            validate_and_create_message(role, content, {})
-                        )
+                    normalized_messages.append(normalize_dict_message(item))
                 else:
                     raise ValueError(
                         f"Unsupported type in list for variable: {type(item)}"
                     )
         elif isinstance(variable_value, dict):
-            role = variable_value.get("role", "user")
-            content = variable_value.get("content", "")
-            normalized_role = role.strip().lower() if isinstance(role, str) else None
-            if normalized_role == "tool" or (
-                normalized_role == "assistant" and variable_value.get("tool_calls")
-            ):
-                normalized_messages.append(
-                    validate_and_create_message(role, content, variable_value)
-                )
-            else:
-                normalized_messages.append(
-                    validate_and_create_message(role, content, {})
-                )
+            normalized_messages.append(normalize_dict_message(variable_value))
         else:
             raise ValueError(f"Unsupported type for variable: {type(variable_value)}")
 
@@ -152,13 +136,19 @@ class ChatPromptHelper:
             content = cls.format_content(
                 content, template_format=template_format, **kwargs
             )
-        if isinstance(message, BaseMessage):
-            message_data = message.model_dump()
-        elif isinstance(message, dict):
-            message_data = message
-        else:
-            message_data = {}
+        message_data = cls.extract_message_data(message)
         return cls.create_message(role, content, message_data)
+
+    @staticmethod
+    def extract_message_data(
+        message: Union[Tuple[str, str], Dict[str, Any], BaseMessage],
+    ) -> Dict[str, Any]:
+        """Extract metadata dictionary from a message object."""
+        if isinstance(message, BaseMessage):
+            return message.model_dump()
+        if isinstance(message, dict):
+            return message
+        return {}
 
     @staticmethod
     def format_content(content: str, template_format: str, **kwargs: Any) -> str:
@@ -399,12 +389,7 @@ class ChatPromptTemplate(PromptTemplateBase):
             # Process BaseMessage, Tuple, and Dict with parse_as_messages
             else:
                 role, content = ChatPromptHelper.extract_role_and_content(item)
-                if isinstance(item, BaseMessage):
-                    message_data = item.model_dump()
-                elif isinstance(item, dict):
-                    message_data = item
-                else:
-                    message_data = {}
+                message_data = ChatPromptHelper.extract_message_data(item)
 
                 if content is None:
                     rendered_messages.append(
