@@ -97,3 +97,28 @@ user:
         template = prompty.to_prompt_template("jinja2")
 
         assert sorted(template.input_variables) == ["question", "subject", "topic"]
+
+
+class TestPromptyHelperRenderContent:
+    """Tests for PromptyHelper.render_content() collision safety and error handling."""
+
+    def test_render_content_handles_colliding_input_names(self):
+        """Inputs named template, template_format, environment, cls, or self do not collide."""
+        rendered = PromptyHelper.render_content(
+            "{{ template }}|{{ template_format }}|{{ environment }}|{{ cls }}",
+            {
+                "template": "tpl",
+                "template_format": "json",
+                "environment": "prod",
+                "cls": "Agent",
+                "self": "ignored_by_jinja",
+            },
+        )
+        assert rendered == "tpl|json|prod|Agent"
+
+    def test_render_content_wraps_template_error_in_value_error(self):
+        """Malformed Jinja2 syntax raises ValueError wrapping TemplateError."""
+        import pytest
+
+        with pytest.raises(ValueError, match="Template rendering error"):
+            PromptyHelper.render_content("{% if unclosed %}", {"unclosed": True})

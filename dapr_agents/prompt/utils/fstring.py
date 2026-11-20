@@ -11,45 +11,16 @@
 # limitations under the License.
 #
 
-from typing import Any, List
-from string import Formatter
+"""Compatibility shim for f-string template utilities. Use dapr_agents.prompt.engine instead."""
 
+from dapr_agents.prompt.engine import (
+    extract_fstring_variables,
+    render_fstring,
+    render_fstring_template,
+)
 
-def render_fstring_template(template: str, **kwargs: Any) -> str:
-    """
-    Render an f-string style template by formatting it with the provided variables.
-
-    Args:
-        template (str): The f-string style template.
-        **kwargs: Variables to be used for formatting the template.
-
-    Returns:
-        str: The rendered template string with variables replaced.
-    """
-    return template.format(**kwargs)
-
-
-def extract_fstring_variables(template: str) -> List[str]:
-    """
-    Extract variables from an f-string style template.
-
-    Args:
-        template (str): The f-string style template.
-
-    Returns:
-        List[str]: A list of variable names found in the template.
-    """
-    # Use the stdlib string.Formatter, which shares str.format() semantics, so
-    # extraction matches how render_fstring_template renders the template. This
-    # correctly treats escaped braces ({{ and }}) as literal characters instead
-    # of variables, and drops any format spec (e.g. {value:>10} -> "value").
-    variables: List[str] = []
-    for _, field_name, _, _ in Formatter().parse(template):
-        if field_name is None:
-            continue
-        if field_name == "" or field_name.isdigit():
-            raise ValueError(
-                "Positional placeholders (e.g. '{}' or '{0}') are not supported; use named fields like '{name}'."
-            )
-        variables.append(field_name)
-    return variables
+__all__ = [
+    "render_fstring",
+    "render_fstring_template",
+    "extract_fstring_variables",
+]
