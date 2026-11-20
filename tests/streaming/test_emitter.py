@@ -248,6 +248,87 @@ class TestAssistantMessageAccumulator:
         )
         assert acc.last_metadata["model"] == "gpt-4o"
 
+    def test_metadata_latest_snapshot_with_merged_usage(self) -> None:
+        acc = AssistantMessageAccumulator()
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="a"),
+                metadata={
+                    "event_id": "evt-1",
+                    "model": "claude-3-7-sonnet",
+                    "usage": {"input_tokens": 20, "cache_read_input_tokens": 5},
+                },
+            )
+        )
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="b"),
+                metadata={"event_id": "evt-2"},
+            )
+        )
+        # Simulate an Anthropic message_delta chunk where model_dump() includes
+        # optional input/cache fields as explicit None.
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="c"),
+                metadata={
+                    "event_id": "evt-3",
+                    "usage": {
+                        "output_tokens": 15,
+                        "input_tokens": None,
+                        "cache_creation_input_tokens": None,
+                        "cache_read_input_tokens": None,
+                    },
+                },
+            )
+        )
+        meta = acc.last_metadata
+        assert meta["event_id"] == "evt-3"
+        assert meta["usage"] == {
+            "input_tokens": 20,
+            "cache_read_input_tokens": 5,
+            "output_tokens": 15,
+        }
+
+    def test_metadata_merged_usage_preserves_valid_on_subsequent_invalid_value(self) -> None:
+        acc = AssistantMessageAccumulator()
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="a"),
+                metadata={
+                    "event_id": "evt-1",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "cache_read_input_tokens": 2,
+                    },
+                },
+            )
+        )
+        # Later chunk contains malformed or negative token values for some fields
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="b"),
+                metadata={
+                    "event_id": "evt-2",
+                    "usage": {
+                        "input_tokens": "invalid",
+                        "output_tokens": -1,
+                        "cache_read_input_tokens": None,
+                        "cache_creation_input_tokens": 8,
+                    },
+                },
+            )
+        )
+        meta = acc.last_metadata
+        assert meta["event_id"] == "evt-2"
+        assert meta["usage"] == {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 2,
+            "cache_creation_input_tokens": 8,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Emitter

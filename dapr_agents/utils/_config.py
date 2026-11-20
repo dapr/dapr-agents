@@ -47,6 +47,17 @@ def is_supported_config_key(key: str) -> bool:
     return any(pattern.fullmatch(key) for pattern in _CONFIG_KEY_PATTERNS)
 
 
+def coerce_token_count(value: Any) -> int | None:
+    """Return a non-negative token count, or None for invalid values."""
+    if value is None:
+        return None
+    try:
+        count = coerce_integral(value)
+    except (ValueError, TypeError):
+        return None
+    return count if count >= 0 else None
+
+
 def validate_case_insensitive_boolean(value: Any) -> bool:
     """Check if a value is a native boolean or a case-insensitive ``true``/``false`` string."""
     if isinstance(value, bool):
