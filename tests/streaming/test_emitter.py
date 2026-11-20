@@ -290,6 +290,45 @@ class TestAssistantMessageAccumulator:
             "output_tokens": 15,
         }
 
+    def test_metadata_merged_usage_preserves_valid_on_subsequent_invalid_value(self) -> None:
+        acc = AssistantMessageAccumulator()
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="a"),
+                metadata={
+                    "event_id": "evt-1",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "cache_read_input_tokens": 2,
+                    },
+                },
+            )
+        )
+        # Later chunk contains malformed or negative token values for some fields
+        acc.ingest(
+            LLMChatResponseChunk(
+                result=LLMChatCandidateChunk(content="b"),
+                metadata={
+                    "event_id": "evt-2",
+                    "usage": {
+                        "input_tokens": "invalid",
+                        "output_tokens": -1,
+                        "cache_read_input_tokens": None,
+                        "cache_creation_input_tokens": 8,
+                    },
+                },
+            )
+        )
+        meta = acc.last_metadata
+        assert meta["event_id"] == "evt-2"
+        assert meta["usage"] == {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 2,
+            "cache_creation_input_tokens": 8,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Emitter

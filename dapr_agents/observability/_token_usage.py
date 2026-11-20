@@ -15,7 +15,7 @@
 
 from typing import Any
 
-from dapr_agents.utils._config import coerce_integral
+from dapr_agents.utils._config import coerce_integral, coerce_token_count
 
 
 def get_usage_value(usage: Any, key: str) -> Any:
@@ -23,17 +23,6 @@ def get_usage_value(usage: Any, key: str) -> Any:
     if isinstance(usage, dict):
         return usage.get(key)
     return getattr(usage, key, None)
-
-
-def coerce_token_count(value: Any) -> int | None:
-    """Return a non-negative token count, or None for invalid values."""
-    if value is None:
-        return None
-    try:
-        count = coerce_integral(value)
-    except (ValueError, TypeError):
-        return None
-    return count if count >= 0 else None
 
 
 def get_input_token_count(usage: Any) -> int | None:
