@@ -12,40 +12,25 @@
 #
 
 """
-Example 4 — HITL via the built-in ``ask_user`` tool.
+HITL example using the built-in ``ask_user`` tool.
 
-Unlike the other HITL examples in this folder, this one is not a
-``before_tool_call`` approval gate — the LLM itself decides, mid-turn, that it
-needs information only the human can provide, and calls the built-in
-``ask_user`` tool to get it. This is the pattern a chat app uses to keep
-coming back to the *same* running workflow instance across several HTTP
-calls, instead of starting a new workflow for every message.
+The LLM can call ``ask_user`` mid-turn to ask the human a question before
+finishing its turn. This suspends the workflow until the human answers, then
+resumes it.
 
-Agent side : enabling ``ask_user`` (via ``AgentExecutionConfig(streaming=True,
-             builtin_tools=[BuiltinTool.ASK_USER])``) suspends the workflow on
-             ``ctx.wait_for_external_event(...)`` when the tool is called, and
-             emits a ``USER_INPUT_REQUESTED`` chunk on the run's stream.
-Client side: a chat client starts the run via ``POST /agent/run/stream``,
-             watches the stream for that chunk, and answers by calling
-             ``POST /agent/run/input`` with the same ``request_id`` /
-             ``target_instance_id`` — which resumes that exact instance.
+Agent side : enabling ``ask_user`` suspends the workflow and emits a
+             ``USER_INPUT_REQUESTED`` chunk on the run's stream.
+Client side: start the run via ``POST /agent/run/stream``, watch the stream
+             for that chunk, and answer via ``POST /agent/run/input``.
 
-If the client's connection to the stream drops before it answers (e.g. the
-chat UI reloads), the question isn't lost: ``GET /agent/instances/{id}``
-surfaces it under ``pending_inputs`` so the client can recover the
-``request_id`` and still reply via the same ``/input`` endpoint. This script
-simulates exactly that: it reads only the first chunk, closes the stream, then
-recovers the pending question from the status endpoint before answering.
+If the client's connection drops before it answers, the question isn't lost:
+``GET /agent/instances/{id}`` returns it under ``pending_inputs``, so the
+client can recover the request and still reply through ``/input``. This
+script simulates that: it reads the question, closes the stream, then
+recovers and answers it through the status endpoint instead.
 
-No pub/sub component required — just the agent's HTTP server.
-
-This script runs both sides in the same process for simplicity. In production
-the client call would come from a separate chat front end.
-
-Other patterns:
-  - durable_agent_hitl.py  — tool-call approval over HTTP
-  - hitl_pubsub.py         — tool-call approval over Dapr pub/sub
-  - hitl_wf_event.py       — tool-call approval via direct workflow event
+This script runs both the agent and the client in the same process for
+simplicity.
 """
 
 import asyncio
@@ -80,15 +65,14 @@ def book_meeting_room(room: str, time_slot: str) -> str:
 
 
 def _client_flow(base_url: str) -> None:
-    """Run the chat-client side of the demo (blocking, plain requests-style flow
-    driven by an inner event loop so this script stays a single file)."""
+    """Run the chat-client side of the demo."""
 
     asyncio.run(_async_client_flow(base_url))
 
 
 async def _async_client_flow(base_url: str) -> None:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # --- start the run and read only the first USER_INPUT_REQUESTED chunk ---
+        # Start the run and read only the first question the agent asks.
         request_id = None
         target_instance_id = None
         async with client.stream(
@@ -111,9 +95,9 @@ async def _async_client_flow(base_url: str) -> None:
             print("No question was asked within the stream window.")
             return
 
-        # --- simulate the chat client disconnecting here (page reload, lost ---
-        # --- connection, etc.) and coming back later with only the instance id ---
-        print("[chat client] (stream closed — simulating a dropped connection)")
+        # Simulate the chat client disconnecting (page reload, lost
+        # connection) before answering.
+        print("[chat client] stream closed, simulating a dropped connection")
         await asyncio.sleep(1)
 
         status_url = f"{base_url}/agent/instances/{target_instance_id}"
@@ -123,12 +107,9 @@ async def _async_client_flow(base_url: str) -> None:
             print("No pending input recovered from the status endpoint.")
             return
         recovered = pending[0]
-        print(
-            f"[chat client] recovered pending question via GET {status_url}: "
-            f"{recovered['question']!r}"
-        )
+        print(f"[chat client] recovered question: {recovered['question']!r}")
 
-        # --- answer using the recovered request_id / target_instance_id ---
+        # Answer using the recovered request_id / target_instance_id.
         print(f"[chat client] answering: {ANSWER}\n")
         await client.post(
             f"{base_url}/agent/run/input",
@@ -139,7 +120,7 @@ async def _async_client_flow(base_url: str) -> None:
             },
         )
 
-        # --- poll the same instance until the turn completes ---
+        # Poll the same instance until the turn completes.
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             status = (await client.get(status_url)).json()
@@ -179,8 +160,6 @@ def main() -> None:
     runner = AgentRunner()
 
     # serve() blocks on uvicorn.run(), so host it on a background thread.
-    # In production the agent service and the chat client are separate
-    # processes; this script runs both for simplicity.
     server_thread = threading.Thread(
         target=runner.serve,
         kwargs={"agent": agent, "host": "127.0.0.1", "port": AGENT_PORT},
