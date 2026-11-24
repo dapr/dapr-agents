@@ -181,6 +181,32 @@ curl -i -X GET http://localhost:8001/agent/instances/WORKFLOW_ID
 curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID
 ```
 
+## Human-in-the-Loop (HITL)
+
+Durable agents can pause a running workflow for a human and resume the exact
+same instance once it answers — this is what lets a chat client keep coming
+back to one workflow execution across several separate HTTP calls, instead of
+starting a new workflow per message.
+
+| Script | Pattern | Transport |
+| --- | --- | --- |
+| [`durable_agent_hitl.py`](./durable_agent_hitl.py) | Tool-call approval gate (`before_tool_call` hook) | HTTP (`GET`/`POST /hitl/approvals`) |
+| [`hitl_pubsub.py`](./hitl_pubsub.py) | Tool-call approval gate | Dapr pub/sub |
+| [`hitl_wf_event.py`](./hitl_wf_event.py) | Tool-call approval gate | Direct `raise_workflow_event` |
+| [`hitl_ask_user.py`](./hitl_ask_user.py) | LLM asks a clarifying question mid-turn (`ask_user` built-in tool) | HTTP (`POST /agent/run/stream` + `POST /agent/run/input`) |
+
+The first three gate a specific tool call behind human approval. `hitl_ask_user.py`
+is different: the LLM itself decides it needs information only the user can
+provide and calls `ask_user` to get it — the pattern you'd use for a chat
+assistant that needs to ask a follow-up question before it can finish a turn.
+
+Each script runs both the agent and the "human" client in the same process for
+simplicity; run one directly once your Dapr sidecar and resources are up:
+
+```bash
+dapr run --app-id hitl-demo --resources-path $temp_resources_folder -- python hitl_ask_user.py
+```
+
 ## Other Durable Agent
 You can also try the following Durable agents with the same tools using `OpenAI`, `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `OPENAI_API_KEY` and `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
 - [OpenAI Durable Agent](./durable_weather_agent_openai.py)
