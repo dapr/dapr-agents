@@ -307,10 +307,21 @@ def register_in_process_queue(
 def unregister_in_process_queue(registry_key: str) -> None:
     """Remove the in-process queue entry and wake any blocked consumer."""
 
+    _unregister_in_process_queue(registry_key)
+
+
+def _unregister_in_process_queue(
+    registry_key: str,
+    *,
+    expected_queue: Optional[asyncio.Queue[Optional[AgentStreamChunk]]] = None,
+) -> None:
     with _REGISTRY_LOCK:
-        entry = _INPROCESS_REGISTRY.pop(registry_key, None)
-    if entry is None:
-        return
+        entry = _INPROCESS_REGISTRY.get(registry_key)
+        if entry is None or (
+            expected_queue is not None and entry.queue is not expected_queue
+        ):
+            return
+        del _INPROCESS_REGISTRY[registry_key]
     # Signal drain from whichever thread called us. If we're on the
     # consumer's loop, put_nowait is safe; otherwise, bounce through
     # call_soon_threadsafe so the async waiter actually wakes up.

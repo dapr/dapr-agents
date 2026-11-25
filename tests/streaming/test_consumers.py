@@ -94,6 +94,26 @@ async def test_in_process_consumer_filters_by_root() -> None:
 
 
 @pytest.mark.asyncio
+async def test_closing_old_in_process_consumer_preserves_replacement() -> None:
+    registry_key = "consumer-replacement"
+    register_in_process_queue(registry_key)
+    try:
+        old = InProcessQueueConsumer(
+            registry_key=registry_key, root_instance_id="root-1"
+        )
+        unregister_in_process_queue(registry_key)
+        queue = register_in_process_queue(registry_key)
+        await old.aclose()
+
+        listener = InProcessQueueListener(registry_key=registry_key)
+        chunk = _chunk(seq=1)
+        listener.emit(chunk)
+        assert await asyncio.wait_for(queue.get(), timeout=5) == chunk
+    finally:
+        unregister_in_process_queue(registry_key)
+
+
+@pytest.mark.asyncio
 async def test_in_process_consumer_sentinel_terminates() -> None:
     """Producer unregisters mid-stream → consumer sees the sentinel and stops.
 

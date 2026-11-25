@@ -349,11 +349,6 @@ class AgentRunner(WorkflowRunner):
                 detach=True,
                 log=False,
             )
-        except Exception:
-            await consumer.aclose()
-            raise
-
-        try:
             async for chunk in consumer:
                 yield chunk
         finally:
@@ -522,13 +517,14 @@ class AgentRunner(WorkflowRunner):
         if kind == "in_process":
             registry_key = listener_config["registry_key"]
             try:
-                register_in_process_queue(registry_key)
+                owned_queue = register_in_process_queue(registry_key)
             except ValueError:
-                # Already registered (edge case: caller reused an instance_id).
-                pass
-            return InProcessQueueConsumer(
+                # A reused key belongs to the consumer that registered it.
+                owned_queue = None
+            return InProcessQueueConsumer._for_runner(
                 registry_key=registry_key,
                 root_instance_id=root_instance_id,
+                owned_queue=owned_queue,
             )
         if kind == "pubsub":
             return PubSubStreamConsumer(
