@@ -25,6 +25,8 @@ You will learn how to:
 6. **[Orchestrate multiple agents inside a workflow](#6-workflow-with-agent-activities)**
 7. **[Enable distributed tracing for agents with Zipkin](#7-durable-agent-trace-zipkin)**
 8. **[Hot-reload agent configuration at runtime](#8-durable-agent-hot-reload)**
+9. **[MCPServer auto-discovery](#9-mcpserver-auto-discovery)** (moved to an example)
+10. **[Signal a running workflow from pub/sub](#10-workflow-event-routes)**
 
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
@@ -428,6 +430,76 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 The MCPServer auto-discovery walkthrough — a `DurableAgent` that discovers MCP
 tools through the Dapr sidecar, plus the multi-server variant — has moved to
 [examples/06-agent-mcp-dapr-workflow](../examples/06-agent-mcp-dapr-workflow/README.md).
+
+---
+
+# 10. Workflow Event Routes
+
+`@message_router` and `PubSubRouteSpec` start a **new** workflow for each message. A `WorkflowEventRouteSpec` does the other half: each message on a topic raises an external event on a workflow that is **already running**, so a workflow can wait for a completion or approval signal that arrives over pub/sub. This example needs no LLM.
+
+```bash
+dapr run --app-id workflow-event-routes --resources-path resources -- python 10_workflow_event_routes.py
+```
+
+## Expected Behavior
+
+The app starts `job_workflow`, which waits for a `job_finished` event. It then publishes a `JobFinished` message naming that workflow to the `jobs.finished` topic, and the event route raises the event. The output ends with:
+
+```
+Workflow job-xxxxxxxx finished with COMPLETED: {'job': 'nightly-report', 'status': 'done', 'result': '42 rows exported'}
+Event route delivered the event.
+```
+
+## How This Works
+
+1. The route names the topic, the event to raise and where to find the target workflow in the message:
+
+   ```python
+   from dapr_agents.workflow import (
+       MessageContext,
+       WorkflowEventRouteSpec,
+       WorkflowEventTarget,
+   )
+
+   route = WorkflowEventRouteSpec(
+       pubsub_name="agent-pubsub",
+       topic="jobs.finished",
+       event_name="job_finished",
+       instance_id_from="job.workflow_id",  # dotted path into the validated message
+       message_model=JobFinished,
+       authorize=authorize,  # optional: decide per message
+   )
+   closers = register_message_routes(dapr_client=client, routes=[route])
+   ```
+
+   With an agent runner, pass the same spec as `runner.subscribe(agent, event_routes=[route])`, or to `register_routes` or `serve`.
+2. The workflow waits for the event by name: `payload = yield ctx.wait_for_external_event("job_finished")`.
+3. For each message the route validates it against `message_model`, resolves the target, runs `authorize`, checks that the workflow is running, and calls `raise_workflow_event`.
+
+| Situation | Outcome |
+| --- | --- |
+| Target workflow is running | The event is raised and the message acknowledged. |
+| Target workflow does not exist yet | Retried within `not_found_retry` (`NotFoundRetryPolicy`), then dropped or dead-lettered. |
+| Target workflow already finished | Dropped, or sent to `dead_letter_topic` when set. |
+| `authorize`, `payload_filter` or `model_filter` returns anything but `True` | Dropped. A hook that times out is retried within the same budget. |
+| Redelivery of the identical message | Deduplicated (`dedupe=True` by default, in memory per route; set `deduper` to share it across replicas). |
+
+The public types, all exported from `dapr_agents.workflow`:
+
+- `WorkflowEventRouteSpec`: the route. Its docstring lists every option.
+- `WorkflowEventTarget`: the resolved instance id and event name passed to `authorize`.
+- `NotFoundRetryPolicy`: how long to retry a message whose workflow does not exist yet.
+- `FieldResolver`: a dotted field path or a callable `(message, MessageContext) -> value`, used by `instance_id_from`, `event_name_from` and `data_from`.
+
+**Security:** anyone who can publish to the topic can signal any workflow whose id they know. Restrict publishers with [pub/sub topic scoping](https://docs.dapr.io/developing-applications/building-blocks/pubsub/pubsub-scopes/) and use `authorize` to check the resolved target, not CloudEvent attributes such as `source`, which the publisher sets.
+
+**Throughput:** a topic with an event route is handled one message at a time on that topic's consumer thread, in every delivery mode, and each message can hold the thread for its hook timeouts and two sidecar calls. Event routes are meant for signals such as completions and approvals, not high-volume streams. On a busy topic keep hooks cheap and lower `hook_timeout_seconds` and `call_timeout_seconds`.
+
+## How to Extend This Example
+
+- Pick the event name per message with `event_name_from`, or shape the payload with `data_from`.
+- Set `dead_letter_topic` to keep messages for workflows that finished or never started.
+- Share deduplication across replicas by passing a shared `deduper` backend on the spec.
 
 ---
 

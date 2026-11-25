@@ -17,7 +17,10 @@ import logging
 from copy import deepcopy
 from typing import Any, Callable, List, Literal, Optional, Type, TypeVar, get_type_hints
 
-from dapr_agents.workflow.utils.routers import extract_message_models
+from dapr_agents.workflow.utils.routers import (
+    extract_and_validate_message_models,
+    extract_message_models,
+)
 from dapr_agents.workflow.utils.subscription import MessageContext, validate_hook
 from dapr_agents.utils.logger import with_logger_context
 from dapr_agents.utils.models import is_supported_model
@@ -144,18 +147,14 @@ def message_router(
                 )
                 hints = getattr(f, "__annotations__", {}) or {}
             inferred = hints.get("message")
-            models = extract_message_models(inferred) if inferred else []
+            models = extract_and_validate_message_models(inferred) if inferred else []
         else:
-            models = extract_message_models(message_model)
+            models = extract_and_validate_message_models(message_model)
 
         if not models:
             raise TypeError(
                 "`@message_router` requires `message_model` (class or Union[...])."
             )
-
-        for m in models:
-            if not is_supported_model(m):
-                raise TypeError(f"Unsupported model type: {m!r}")
 
         data = {
             "pubsub": pubsub,

@@ -58,6 +58,10 @@ STREAM_PHASE: str = "_stream_phase"
 #: ``DaprClient.raise_workflow_event``: ``user_input_response:{request_id}``.
 USER_INPUT_EVENT_PREFIX: str = "user_input_response"
 
+#: Prefix of the workflow event name a ``DurableAgent`` waits on for a human
+#: approval decision: ``approval_response_{approval_request_id}``.
+APPROVAL_RESPONSE_EVENT_PREFIX: str = "approval_response_"
+
 
 # ---------------------------------------------------------------------------
 # StreamContextDict — typed schema for the stream_context dict
@@ -110,6 +114,7 @@ class StreamContextDict(TypedDict, total=False):
 
 
 __all__ = [
+    "APPROVAL_RESPONSE_EVENT_PREFIX",
     "INCLUDE_COMPLETE_MESSAGE",
     "MESSAGE_METADATA",
     "STREAM_CONTEXT",
