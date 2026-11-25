@@ -25,22 +25,22 @@ class ConversationListMemory(MemoryBase):
     retrieve, and manage messages during a conversation session.
     """
 
-    messages: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="List of messages stored in conversation memory as dictionaries.",
+    messages: Dict[str, List[Dict[str, Any]]] = Field(
+        default_factory=dict,
+        description="Messages stored per workflow instance id as dictionaries.",
     )
 
     def add_message(
         self, message: Union[Dict[str, Any], BaseMessage], workflow_instance_id: str
     ) -> None:
         """
-        Adds a single message to the end of the memory list.
+        Adds a single message to the end of the memory list for the given id.
 
         Args:
             message: The message to add to the memory.
-            workflow_instance_id: Workflow instance id for this message (ignored for single-list storage).
+            workflow_instance_id: Workflow instance id for this message.
         """
-        self.messages.append(self._convert_to_dict(message))
+        self.messages.setdefault(workflow_instance_id, []).append(self._convert_to_dict(message))
 
     def add_messages(
         self,
@@ -48,13 +48,15 @@ class ConversationListMemory(MemoryBase):
         workflow_instance_id: str,
     ) -> None:
         """
-        Adds multiple messages to the memory by appending each message to the list.
+        Adds multiple messages to the memory for the given id.
 
         Args:
             messages: A list of messages to add to the memory.
-            workflow_instance_id: Workflow instance id for these messages (ignored for single-list storage).
+            workflow_instance_id: Workflow instance id for these messages.
         """
-        self.messages.extend(self._convert_to_dict(msg) for msg in messages)
+        self.messages.setdefault(workflow_instance_id, []).extend(
+            self._convert_to_dict(msg) for msg in messages
+        )
 
     def add_interaction(
         self,
@@ -74,21 +76,22 @@ class ConversationListMemory(MemoryBase):
 
     def get_messages(self, workflow_instance_id: str) -> List[Dict[str, Any]]:
         """
-        Retrieves a copy of all messages stored in the memory.
+        Retrieves a copy of the messages stored for the given id.
 
         Args:
-            workflow_instance_id: Workflow instance id to retrieve messages for (ignored for single-list storage).
+            workflow_instance_id: Workflow instance id to retrieve messages for.
 
         Returns:
-            A list containing copies of all stored messages as dictionaries.
+            A list containing copies of the stored messages as dictionaries
+            (empty when the id has no messages).
         """
-        return self.messages.copy()
+        return self.messages.get(workflow_instance_id, []).copy()
 
     def reset_memory(self, workflow_instance_id: str) -> None:
         """
-        Clears all messages stored in the memory.
+        Clears the messages stored for the given id only.
 
         Args:
-            workflow_instance_id: Workflow instance id to reset (ignored for single-list storage).
+            workflow_instance_id: Workflow instance id to reset.
         """
-        self.messages.clear()
+        self.messages.pop(workflow_instance_id, None)
