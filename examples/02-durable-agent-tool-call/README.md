@@ -181,6 +181,18 @@ curl -i -X GET http://localhost:8001/agent/instances/WORKFLOW_ID
 curl -i -X GET http://localhost:3500/v1.0/workflows/dapr/WORKFLOW_ID
 ```
 
+## Human-in-the-Loop (HITL)
+
+[`hitl_ask_user.py`](./hitl_ask_user.py) shows the built-in `ask_user` tool: the
+LLM pauses mid-turn to ask the user a question, and the workflow resumes once
+it gets an answer. The script runs both the agent and the "human" client in
+the same process for simplicity; run it once your Dapr sidecar and resources
+are up:
+
+```bash
+dapr run --app-id hitl-demo --resources-path $temp_resources_folder -- python hitl_ask_user.py
+```
+
 ## Other Durable Agent
 You can also try the following Durable agents with the same tools using `OpenAI`, `HuggingFace hub` and `NVIDIA` LLM chat clients. Make sure you add the `OPENAI_API_KEY` and `HUGGINGFACE_API_KEY` and `NVIDIA_API_KEY` to the `.env` file.
 - [OpenAI Durable Agent](./durable_weather_agent_openai.py)
