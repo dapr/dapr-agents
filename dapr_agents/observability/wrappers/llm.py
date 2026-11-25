@@ -509,16 +509,20 @@ class LLMWrapper(LLMStreamingMixin):
             usage = metadata.usage
 
         if usage is not None:
-            input_tokens = (
-                usage.get("prompt_tokens")
-                if isinstance(usage, dict)
-                else getattr(usage, "prompt_tokens", None)
-            )
-            output_tokens = (
-                usage.get("completion_tokens")
-                if isinstance(usage, dict)
-                else getattr(usage, "completion_tokens", None)
-            )
+            if isinstance(usage, dict):
+                input_tokens = usage.get("prompt_tokens")
+                if input_tokens is None:
+                    input_tokens = usage.get("input_tokens")
+                output_tokens = usage.get("completion_tokens")
+                if output_tokens is None:
+                    output_tokens = usage.get("output_tokens")
+            else:
+                input_tokens = getattr(usage, "prompt_tokens", None)
+                if input_tokens is None:
+                    input_tokens = getattr(usage, "input_tokens", None)
+                output_tokens = getattr(usage, "completion_tokens", None)
+                if output_tokens is None:
+                    output_tokens = getattr(usage, "output_tokens", None)
             if input_tokens is not None:
                 span.set_attribute(GEN_AI_USAGE_INPUT_TOKENS, input_tokens)
             if output_tokens is not None:
