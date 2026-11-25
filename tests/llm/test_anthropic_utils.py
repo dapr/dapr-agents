@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 from anthropic.types import (
+    InputJSONDelta,
     Message,
     RawContentBlockDeltaEvent,
     RawContentBlockStartEvent,
@@ -63,6 +64,7 @@ from dapr_agents.types.message import (
     LLMChatResponse,
     LLMChatResponseChunk,
 )
+from dapr_agents.types.streaming import AssistantMessageAccumulator
 from tests.llm.streaming_test_harness import StreamingComplianceHarness
 
 
@@ -522,6 +524,59 @@ class TestRealSDKModelFixtures:
             expected_finish_reason="end_turn",
         )
         StreamingComplianceHarness.assert_snapshot_isolation(chunks)
+
+    def test_streamed_tool_call_without_input_translates_back(self) -> None:
+        """A streamed call to a tool without parameters must replay on the next turn."""
+        real_events = [
+            RawMessageStartEvent(
+                type="message_start",
+                message=Message(
+                    id="msg_stream_no_input",
+                    model="claude-sonnet-4-6",
+                    role="assistant",
+                    type="message",
+                    content=[],
+                    stop_reason=None,
+                    stop_sequence=None,
+                    usage=Usage(input_tokens=12, output_tokens=0),
+                ),
+            ),
+            RawContentBlockStartEvent(
+                type="content_block_start",
+                index=0,
+                content_block=ToolUseBlock(
+                    type="tool_use", id="toolu_time", name="get_time", input={}
+                ),
+            ),
+            RawContentBlockDeltaEvent(
+                type="content_block_delta",
+                index=0,
+                delta=InputJSONDelta(type="input_json_delta", partial_json=""),
+            ),
+            RawMessageDeltaEvent(
+                type="message_delta",
+                delta=Delta(stop_reason="tool_use"),
+                usage=MessageDeltaUsage(output_tokens=9),
+            ),
+        ]
+        accumulator = AssistantMessageAccumulator()
+        for chunk in StreamHandler.process_stream(
+            stream=_stream_cm(real_events), llm_provider="anthropic"
+        ):
+            accumulator.ingest(chunk)
+        assistant = accumulator.assistant_message()
+
+        _, out = split_messages(
+            [
+                {"role": "user", "content": "What time is it?"},
+                assistant,
+                {"role": "tool", "tool_call_id": "toolu_time", "content": "12:00"},
+            ]
+        )
+
+        assert out[1]["content"] == [
+            {"type": "tool_use", "id": "toolu_time", "name": "get_time", "input": {}}
+        ]
 
     def test_response_handler_with_real_sdk_structured_response(self) -> None:
         class CityWeather(BaseModel):

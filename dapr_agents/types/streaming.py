@@ -222,12 +222,16 @@ class _ToolCallBuffer:
                 self.arguments.append(fn.arguments)
 
     def to_dict(self) -> Dict[str, Any]:
+        # A call to a tool without parameters can stream no argument text, as
+        # Anthropic does. An empty string is not valid JSON and FunctionCall
+        # rejects it, so send "{}" as the non-streaming paths do.
+        arguments = "".join(self.arguments)
         return {
             "id": self.id or "",
             "type": self.type or "function",
             "function": {
                 "name": self.name or "",
-                "arguments": "".join(self.arguments),
+                "arguments": arguments if arguments.strip() else "{}",
             },
         }
 
