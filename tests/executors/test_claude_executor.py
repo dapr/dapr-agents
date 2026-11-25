@@ -353,7 +353,69 @@ class TestResume:
         assert client.prompt == "next"
         assert client.options.resume == SESSION_ID
         assert client.options.session_id is None
-        assert events[-1].metadata["cost_usd"] == pytest.approx(0.006)
+        # Store materialize: CLI total is this run alone (even when >= prior).
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.01)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.014)
+
+    async def test_store_resume_uses_run_total_when_cli_excludes_prior(self, cwd):
+        """SessionStore materialize: CLI total is this run alone.
+
+        Store resumes always materialize into a temp CLAUDE_CONFIG_DIR, so
+        ``total_cost_usd`` is treated as this run's cost even when it is
+        greater than or equal to the stored prior (JeffreyJPZ edge case on
+        #903 / issue #900).
+        """
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(
+            store,
+            executor,
+            {"type": "user", "uuid": "u1"},
+            {"type": "cost-state", "totalCostUSD": 1.0},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.5)])
+        events = await _collect(executor, "next", session_id=SESSION_ID)
+        assert FakeClaudeClient.last().options.resume == SESSION_ID
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.5)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(1.5)
+
+    async def test_store_resume_keeps_run_total_when_expensive_run_exceeds_prior(
+        self, cwd
+    ):
+        """Expensive per-run total >= prior must not be treated as cumulative."""
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(
+            store,
+            executor,
+            {"type": "user", "uuid": "u1"},
+            {"type": "cost-state", "totalCostUSD": 0.30},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.50)])
+        events = await _collect(executor, "next", session_id=SESSION_ID)
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.50)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.80)
+
+    async def test_store_resume_sums_prior_across_two_cost_states(self, cwd):
+        """Two store resumes leave two per-run cost-state entries; prior is their sum.
+
+        Without summing, ``last_total_cost`` would only see the latest run and
+        ``session_total_cost_usd`` would drop earlier runs.
+        """
+        store = InMemorySessionStore()
+        executor = _executor(cwd, session_store=store)
+        await _seed(
+            store,
+            executor,
+            {"type": "user", "uuid": "u1"},
+            {"type": "cost-state", "totalCostUSD": 0.20},
+            {"type": "user", "uuid": "u2"},
+            {"type": "cost-state", "totalCostUSD": 0.10},
+        )
+        FakeClaudeClient.reset([result_message(total_cost_usd=0.50)])
+        events = await _collect(executor, "third", session_id=SESSION_ID)
+        assert events[-1].metadata["cost_usd"] == pytest.approx(0.50)
+        assert events[-1].metadata["session_total_cost_usd"] == pytest.approx(0.80)
 
     async def test_decision_resumes_pending_call_without_prompt(self, cwd):
         store = InMemorySessionStore()
