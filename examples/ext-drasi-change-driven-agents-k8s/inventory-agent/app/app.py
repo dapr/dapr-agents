@@ -21,7 +21,7 @@ from dapr_agents import AgentRunner
 from dapr_agents.agents.schemas import TriggerAction
 from dapr_agents.workflow.utils.core import wait_for_shutdown
 
-from dapr_agents.ext.drasi import DrasiChangeEvent, drasi_trigger
+from dapr_agents.ext.drasi import DrasiChangeEvent, register_drasi_trigger
 
 from agent import make_agent
 
@@ -56,13 +56,13 @@ async def main() -> None:
     agent = make_agent()
 
     # Register Drasi query subscriptions
-    drasi_trigger(
+    register_drasi_trigger(
         agent,
         query_id="critical-stock-event-query",
         task_mapper=make_task,
         operations="i",
     )
-    drasi_trigger(
+    register_drasi_trigger(
         agent,
         query_id="low-stock-event-query",
         task_mapper=make_task,

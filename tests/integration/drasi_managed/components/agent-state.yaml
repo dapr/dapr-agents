@@ -1,0 +1,22 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-state
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: agent-state:6379
+    - name: redisPassword
+      value: ""
+    - name: dialTimeout
+      value: 2s
+    - name: readTimeout
+      value: 2s
+    - name: writeTimeout
+      value: 2s
+    - name: maxRetries
+      value: "0"
+scopes:
+  - managed-agent

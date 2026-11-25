@@ -127,7 +127,8 @@ def _command_failure(
             "unavailable": (
                 "The subscription is unavailable. Inspect local subscription "
                 "status and last router outcome. If retained intent is marked "
-                "unavailable, unsubscribe first, then subscribe again. Otherwise "
+                "unavailable, unsubscribe first, then subscribe again only if the "
+                "query is in the prepared catalog. Otherwise "
                 "check preparation and the operator's configuration."
             ),
         }[error.category]
@@ -167,6 +168,34 @@ def _command_failure(
     return ToolResult.error(f"Drasi {command} failed: {detail}")
 
 
+def _unsubscribe_tool(
+    query_id: str, manager: SubscriptionManager, description: str
+) -> AgentTool:
+    def unsubscribe() -> ToolResult:
+        try:
+            manager.unsubscribe(query_id)
+        except (SubscriptionCommandError, RouterError, IntentStoreError) as error:
+            return _command_failure("unsubscribe", error)
+        return ToolResult.success(
+            {"query_id": query_id, "subscribed": False},
+            text=(
+                f"Monitoring for {query_id!r} is stopped (already absent is also "
+                "success). Already scheduled workflows are not cancelled."
+            ),
+        )
+
+    return AgentTool(
+        name=_tool_name("unsubscribe", query_id),
+        description=(
+            "Stop persistent monitoring for this query. Already absent "
+            "local intent is an idempotent success. This does not cancel "
+            f"already scheduled workflows.\n{description}"
+        ),
+        args_model=_NoArgs,
+        func=unsubscribe,
+    )
+
+
 def _query_tools(query: Query, manager: SubscriptionManager) -> list[AgentTool]:
     query_id = query.query_id
     description = _query_description(query)
@@ -192,19 +221,6 @@ def _query_tools(query: Query, manager: SubscriptionManager) -> list[AgentTool]:
             ),
         )
 
-    def unsubscribe() -> ToolResult:
-        try:
-            manager.unsubscribe(query_id)
-        except (SubscriptionCommandError, RouterError, IntentStoreError) as error:
-            return _command_failure("unsubscribe", error)
-        return ToolResult.success(
-            {"query_id": query_id, "subscribed": False},
-            text=(
-                f"Monitoring for {query_id!r} is stopped (already absent is also "
-                "success). Already scheduled workflows are not cancelled."
-            ),
-        )
-
     return [
         AgentTool(
             name=_tool_name("subscribe", query_id),
@@ -219,21 +235,15 @@ def _query_tools(query: Query, manager: SubscriptionManager) -> list[AgentTool]:
             args_model=_SubscribeArgs,
             func=subscribe,
         ),
-        AgentTool(
-            name=_tool_name("unsubscribe", query_id),
-            description=(
-                "Stop persistent monitoring for this query. Already absent "
-                "local intent is an idempotent success. This does not cancel "
-                f"already scheduled workflows.\n{description}"
-            ),
-            args_model=_NoArgs,
-            func=unsubscribe,
-        ),
+        _unsubscribe_tool(query_id, manager, description),
     ]
 
 
 def build_subscription_tools(
-    catalog: ListQueriesResponse, manager: SubscriptionManager
+    catalog: ListQueriesResponse,
+    manager: SubscriptionManager,
+    *,
+    retained_query_ids: tuple[str, ...] = (),
 ) -> list[AgentTool]:
     """Build tools without network/state I/O or agent mutation.
 
@@ -241,6 +251,8 @@ def build_subscription_tools(
     Query IDs are bound into closures, never exposed as model-selected arguments.
     The caller owns attachment and lifetime, including checking collisions against the
     agent's existing executor before attaching any of these tools.
+    Retained query IDs come from validated, scoped intent loaded by the caller.
+    Those absent from the catalog receive unsubscribe-only cleanup tools.
     """
     try:
         prepared_catalog = parse(ListQueriesResponse, to_wire(catalog))
@@ -279,6 +291,17 @@ def build_subscription_tools(
         for query in prepared_catalog.queries
         for tool in _query_tools(query, manager)
     ]
+    catalog_ids = {query.query_id for query in prepared_catalog.queries}
+    for query_id in sorted(set(retained_query_ids) - catalog_ids):
+        tools.append(
+            _unsubscribe_tool(
+                query_id,
+                manager,
+                f"Query ID: {query_id}\n"
+                "This query is no longer in the prepared catalog. Clean up its "
+                "saved subscription; starting or updating monitoring is not available.",
+            )
+        )
     tools.append(
         AgentTool(
             name=_LIST_TOOL_NAME,
