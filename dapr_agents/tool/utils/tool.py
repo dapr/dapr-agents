@@ -92,7 +92,8 @@ class ToolHelper:
         """
         sig = signature(func)
         try:
-            type_hints = get_type_hints(func)
+            # include_extras keeps Annotated metadata such as Field(description=...)
+            type_hints = get_type_hints(func, include_extras=True)
         except Exception:
             type_hints = {}
         fields: Dict[str, Any] = {}
