@@ -35,6 +35,11 @@ class TextSplitter(SplitterBase):
         3. Splits text adaptively using primary and fallback methods.
         4. Merges smaller chunks into valid sizes while maintaining overlap.
 
+        For the regex fallback, the effective chunk size is a merge target,
+        not a hard upper bound. Oversized fallback segments remain intact
+        rather than being split by character position, so the returned chunks
+        can exceed that target.
+
         Args:
             text (str): The text to be split.
 
