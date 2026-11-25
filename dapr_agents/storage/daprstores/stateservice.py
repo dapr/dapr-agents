@@ -38,6 +38,10 @@ class StateStoreError(RuntimeError):
     """Raised when high-level state operations fail."""
 
 
+class InvalidStateError(StateStoreError):
+    """Raised when stored state is malformed, so retrying the read cannot help."""
+
+
 class StateStoreService:
     """
     High-level state helper that composes a `DaprStateStore` instance.
@@ -183,7 +187,7 @@ class StateStoreService:
         try:
             parsed = self.model(**payload)
         except ValidationError as exc:
-            raise StateStoreError(f"State validation failed: {exc.errors()}") from exc
+            raise InvalidStateError(f"State validation failed: {exc.errors()}") from exc
         return parsed if return_model else self._model_dump(parsed)
 
     def _save_local_copy(self, *, key: str, data: Dict[str, Any]) -> None:
@@ -246,6 +250,12 @@ class StateStoreService:
 
         Returns:
             Dict payload or model instance.
+
+        Raises:
+            InvalidStateError: The stored value is not valid JSON, is not a dict,
+                or fails model validation. Retrying the read cannot help.
+            StateStoreError: The read itself failed (for example a backend error),
+                which may succeed on retry.
         """
         qualified = self._qualify(key)
         logger.debug("Loading state from %s key=%s", self.store_name, qualified)
@@ -269,12 +279,12 @@ class StateStoreService:
         try:
             state_data = response.json()
         except Exception as exc:  # noqa: BLE001
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' is not valid JSON: {exc}"
             ) from exc
 
         if not isinstance(state_data, dict):
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' must be a dict, got {type(state_data)}"
             )
 
@@ -299,6 +309,12 @@ class StateStoreService:
 
         Returns:
             (dict_or_model, etag_or_none)
+
+        Raises:
+            InvalidStateError: The stored value is not valid JSON, is not a dict,
+                or fails model validation. Retrying the read cannot help.
+            StateStoreError: The read itself failed (for example a backend error),
+                which may succeed on retry.
         """
         qualified = self._qualify(key)
         logger.debug(
@@ -325,12 +341,12 @@ class StateStoreService:
         try:
             state_data = response.json()
         except Exception as exc:  # noqa: BLE001
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' is not valid JSON: {exc}"
             ) from exc
 
         if not isinstance(state_data, dict):
-            raise StateStoreError(
+            raise InvalidStateError(
                 f"State for key '{qualified}' must be a dict, got {type(state_data)}"
             )
 
@@ -722,6 +738,7 @@ def execute_state_transaction(
 
 __all__ = [
     "StateStoreError",
+    "InvalidStateError",
     "StateStoreService",
     "DaprStateStore",
     "_coerce_state_options",

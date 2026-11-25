@@ -14,6 +14,7 @@
 from .base import DaprStoreBase
 from .statestore import DaprStateStore
 from .stateservice import (
+    InvalidStateError,
     StateStoreError,
     StateStoreService,
     load_state_dict,
@@ -29,6 +30,7 @@ from .stateservice import (
 __all__ = [
     "DaprStoreBase",
     "DaprStateStore",
+    "InvalidStateError",
     "StateStoreError",
     "StateStoreService",
     "load_state_dict",
