@@ -242,6 +242,17 @@ class SplitterBase(BaseModel, ABC):
         """
         Split documents into smaller chunks while retaining metadata.
 
+        Each emitted chunk includes the following metadata:
+        - `chunk_number` (int): 1-based index of the chunk.
+        - `total_chunks` (int): Total number of chunks produced from the document.
+        - `start_index` (Optional[int]): 0-based character start offset in the source document
+          such that `doc.text[start_index:end_index] == chunk.text`, or `None` if the chunk
+          is not an exact literal substring of `doc.text` (e.g. when whitespace is normalized
+          or dropped during splitting).
+        - `end_index` (Optional[int]): 0-based character end offset in the source document,
+          or `None` if the chunk is not an exact substring.
+        - `chunk_length` (int): Length of the chunk according to `chunk_size_function`.
+
         Args:
             documents (List[Document]): List of documents to be split.
 
@@ -252,12 +263,17 @@ class SplitterBase(BaseModel, ABC):
         for doc in documents:
             text_chunks = self.split(doc.text)
 
-            previous_end = 0
+            cursor = 0
             for chunk_num, chunk in enumerate(text_chunks):
-                start_index = doc.text.find(chunk, previous_end)
-                if start_index == -1:
-                    start_index = previous_end
-                end_index = start_index + self._get_chunk_size(chunk)
+                chunk_len = len(chunk)
+                start_index = doc.text.find(chunk, cursor)
+
+                if start_index != -1:
+                    end_index = start_index + chunk_len
+                    cursor = start_index + 1
+                else:
+                    start_index = None
+                    end_index = None
 
                 metadata = doc.metadata.copy() if doc.metadata else {}
                 metadata.update(
@@ -270,6 +286,5 @@ class SplitterBase(BaseModel, ABC):
                     }
                 )
                 chunked_documents.append(Document(metadata=metadata, text=chunk))
-                previous_end = end_index
 
         return chunked_documents
