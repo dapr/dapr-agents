@@ -54,8 +54,11 @@ All contributions come through pull requests. To submit a proposed change, we re
 1. Fork the relevant repo and create a new branch
 1. Create your change
     - Code changes require tests
-    - Make sure to run the linters to check and format the code:
-        - `make hooks-run-all` executes the pre-commit hooks
+    - Follow the [Git hook setup instructions](docs/development/README.md#git-hooks) to install both commit and push hooks.
+    - Run the checks before submitting:
+        - `pre-commit run --all-files --hook-stage pre-commit` runs file hygiene, formatting, linting, and type checks.
+        - `make hooks-run` runs the pre-push formatting check and unit-test suites.
+        - `make hooks-run-all` runs the pre-push hooks and integration tests, which require the [integration-test prerequisites](docs/development/README.md#integration-tests).
 1. Update relevant documentation for the change
 1. Commit with [DCO sign-off](#developer-certificate-of-origin-signing-your-work) and open a PR
 1. Wait for the CI process to finish and make sure all checks are green
