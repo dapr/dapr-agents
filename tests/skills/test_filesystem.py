@@ -386,6 +386,50 @@ async def test_persisted_snapshot_reopens_with_a_new_source_instance(
 
 
 @pytest.mark.asyncio
+async def test_snapshot_ids_are_content_digests(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "replayable-skill")
+
+    snapshot_id = await FileSystemSkillSource([tmp_path]).resolve_snapshot()
+
+    assert snapshot_id.startswith("sha256:")
+    assert len(snapshot_id) == len("sha256:") + 64
+
+
+@pytest.mark.asyncio
+async def test_snapshot_digest_includes_source_configuration(tmp_path: Path) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+
+    first = await FileSystemSkillSource(
+        [first_root], max_depth=1, max_resource_bytes=100
+    ).resolve_snapshot()
+    second = await FileSystemSkillSource(
+        [second_root], max_depth=1, max_resource_bytes=100
+    ).resolve_snapshot()
+
+    assert first != second
+
+
+@pytest.mark.asyncio
+async def test_snapshot_digest_rejects_catalog_changes(tmp_path: Path) -> None:
+    skill_dir = _write_skill(tmp_path, "replayable-skill")
+    source = FileSystemSkillSource([tmp_path])
+    snapshot_id = await source.resolve_snapshot()
+
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: replayable-skill\ndescription: changed\n---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SkillCatalogError):
+        await FileSystemSkillSource([tmp_path]).resolve_snapshot(
+            snapshot_id=snapshot_id
+        )
+
+
+@pytest.mark.asyncio
 async def test_snapshot_reopens_and_rejects_unavailable_source(
     tmp_path: Path,
 ) -> None:

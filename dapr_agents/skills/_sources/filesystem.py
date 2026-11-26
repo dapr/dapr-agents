@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import mimetypes
@@ -21,7 +22,7 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 import yaml
 from pydantic import ValidationError
@@ -67,8 +68,15 @@ _UTF8_ENCODING = "utf-8"
 _BINARY_READ_MODE = "rb"
 _DEFAULT_MEDIA_TYPE = "application/octet-stream"
 _SNAPSHOT_VERSION = 1
+_SNAPSHOT_ID_PREFIX = "sha256:"
+_SNAPSHOT_ID_HEX_LENGTH = hashlib.sha256().digest_size * 2
 _SNAPSHOT_VERSION_KEY = "version"
 _SNAPSHOT_SKILLS_KEY = "skills"
+_SNAPSHOT_ROOTS_KEY = "roots"
+_SNAPSHOT_CONFIGURATION_KEY = "configuration"
+_SNAPSHOT_MAX_DEPTH_KEY = "max_depth"
+_SNAPSHOT_MAX_INSTRUCTIONS_KEY = "max_instructions_bytes"
+_SNAPSHOT_MAX_RESOURCE_KEY = "max_resource_bytes"
 _SNAPSHOT_ROOT_KEY = "root"
 _SNAPSHOT_DIRECTORY_KEY = "directory"
 _SNAPSHOT_METADATA_KEY = "metadata"
@@ -130,10 +138,13 @@ class _DiscoveredSkill:
 class FileSystemSkillSource:
     """Discover Agent Skills from explicitly configured filesystem roots.
 
-    Discovery creates a serialized, metadata-only snapshot of each skill. The
-    runtime carries that snapshot through durable catalog state; later reads
-    verify the same paths and file identities before opening any bytes. This
-    keeps resources lazy while making filesystem mutation fail closed.
+    Discovery creates a canonical, metadata-only snapshot manifest for each
+    skill and carries its digest through durable catalog state; later reads
+    verify the same paths and metadata-based file signatures before opening any
+    bytes. Resources remain lazy, and detected mutations fail closed. The
+    metadata-only manifest neither retains historical bytes nor provides
+    cryptographic content integrity; use immutable or versioned artifacts when
+    exact byte consistency is required.
     """
 
     def __init__(
@@ -179,6 +190,7 @@ class FileSystemSkillSource:
         self.max_instructions_bytes = max_instructions_bytes
         self.max_resource_bytes = max_resource_bytes
         self.source_id = source_id
+        self._snapshot_records: dict[str, dict[str, _DiscoveredSkill]] = {}
 
     async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
         """Resolve the current filesystem version or reopen a persisted one."""
@@ -278,7 +290,15 @@ class FileSystemSkillSource:
         return await asyncio.to_thread(self._record_from_snapshot, snapshot_id, name)
 
     def _discover_sync(self) -> str:
-        """Discover skills and serialize their metadata and file inventory."""
+        """Discover skills and return the digest of their snapshot manifest."""
+        records = self._discover_records_sync()
+        manifest = self._encode_snapshot(records.values())
+        snapshot_id = self._snapshot_id(manifest)
+        self._snapshot_records[snapshot_id] = records
+        return snapshot_id
+
+    def _discover_records_sync(self) -> dict[str, _DiscoveredSkill]:
+        """Discover skills and retain their metadata-only snapshot records."""
         discovered: list[_DiscoveredSkill] = []
         names: set[str] = set()
         total_resources = 0
@@ -314,8 +334,7 @@ class FileSystemSkillSource:
                 if len(discovered) > _MAX_DISCOVERED_SKILLS:
                     raise SkillCatalogError(skill_name=metadata.name)
 
-        snapshot = self._encode_snapshot(discovered)
-        return snapshot
+        return {record.metadata.name: record for record in discovered}
 
     def _skill_directories(
         self,
@@ -342,7 +361,7 @@ class FileSystemSkillSource:
             return
 
         try:
-            entries = []
+            entries: list[Path] = []
             for entry in directory.iterdir():
                 if len(entries) >= _MAX_DIRECTORY_ENTRIES:
                     raise SkillCatalogError(path=str(directory))
@@ -554,7 +573,7 @@ class FileSystemSkillSource:
             if not resolved_current.is_relative_to(skill_directory):
                 raise SkillUnsafePathError(skill_name=skill_name)
 
-            entries = []
+            entries: list[Path] = []
             for entry in current.iterdir():
                 if len(entries) >= _MAX_DIRECTORY_ENTRIES:
                     raise SkillCatalogError(skill_name=skill_name)
@@ -711,10 +730,22 @@ class FileSystemSkillSource:
             file_stat.st_mtime_ns,
         )
 
-    def _encode_snapshot(self, discovered: Sequence[_DiscoveredSkill]) -> str:
-        """Serialize discovered records into a bounded durable snapshot ID."""
+    @staticmethod
+    def _snapshot_id(manifest: str) -> str:
+        """Return the stable digest ID for a canonical snapshot manifest."""
+        digest = hashlib.sha256(manifest.encode(_UTF8_ENCODING)).hexdigest()
+        return f"{_SNAPSHOT_ID_PREFIX}{digest}"
+
+    def _encode_snapshot(self, discovered: Iterable[_DiscoveredSkill]) -> str:
+        """Serialize discovered records into a bounded snapshot manifest."""
         payload = {
             _SNAPSHOT_VERSION_KEY: _SNAPSHOT_VERSION,
+            _SNAPSHOT_ROOTS_KEY: [str(root) for root in self.skill_paths],
+            _SNAPSHOT_CONFIGURATION_KEY: {
+                _SNAPSHOT_MAX_DEPTH_KEY: self.max_depth,
+                _SNAPSHOT_MAX_INSTRUCTIONS_KEY: self.max_instructions_bytes,
+                _SNAPSHOT_MAX_RESOURCE_KEY: self.max_resource_bytes,
+            },
             _SNAPSHOT_SKILLS_KEY: {
                 record.metadata.name: {
                     _SNAPSHOT_ROOT_KEY: str(record.root),
@@ -736,63 +767,33 @@ class FileSystemSkillSource:
         return snapshot
 
     def _records_from_snapshot(self, snapshot_id: str) -> dict[str, _DiscoveredSkill]:
-        """Decode and validate every record in a persisted filesystem snapshot."""
+        """Reopen a filesystem snapshot identified by its digest."""
         if len(snapshot_id.encode(_UTF8_ENCODING)) > _MAX_SNAPSHOT_BYTES:
             raise SkillCatalogError()
+        if not snapshot_id.startswith(_SNAPSHOT_ID_PREFIX):
+            raise SkillCatalogError()
+
+        digest = snapshot_id.removeprefix(_SNAPSHOT_ID_PREFIX)
+        if len(digest) != _SNAPSHOT_ID_HEX_LENGTH:
+            raise SkillCatalogError()
+        try:
+            int(digest, 16)
+        except ValueError as exc:
+            raise SkillCatalogError() from exc
+
+        cached_records = self._snapshot_records.get(snapshot_id)
+        if cached_records is not None:
+            return cached_records
 
         try:
-            payload = json.loads(snapshot_id)
-            # Snapshot IDs are serialized source state, so validate every path
-            # and signature before exposing any record to a lazy read.
-            if (
-                not isinstance(payload, dict)
-                or payload.get(_SNAPSHOT_VERSION_KEY) != _SNAPSHOT_VERSION
-                or not isinstance(payload.get(_SNAPSHOT_SKILLS_KEY), dict)
-            ):
-                raise ValueError("unsupported filesystem snapshot")
-
-            records: dict[str, _DiscoveredSkill] = {}
-            for name, raw in payload[_SNAPSHOT_SKILLS_KEY].items():
-                if not isinstance(name, str) or not isinstance(raw, dict):
-                    raise ValueError("invalid filesystem skill snapshot")
-                root = Path(raw[_SNAPSHOT_ROOT_KEY])
-                directory = Path(raw[_SNAPSHOT_DIRECTORY_KEY])
-
-                if root not in self.skill_paths:
-                    raise ValueError("snapshot root is not configured")
-                metadata = SkillMetadata.model_validate(raw[_SNAPSHOT_METADATA_KEY])
-                if metadata.name != name or directory.name != name:
-                    raise ValueError("snapshot skill identity mismatch")
-                if not directory.is_relative_to(root):
-                    raise ValueError("snapshot skill directory is outside its root")
-
-                skill_file = _FileSignature.from_dict(raw[_SNAPSHOT_SKILL_FILE_KEY])
-                if not Path(skill_file.resolved_path).is_relative_to(directory):
-                    raise ValueError("snapshot skill file is outside its directory")
-                raw_resources = raw[_SNAPSHOT_RESOURCES_KEY]
-                if not isinstance(raw_resources, dict):
-                    raise ValueError("invalid filesystem resources")
-
-                resources = []
-                for path, raw_signature in raw_resources.items():
-                    if not isinstance(path, str):
-                        raise ValueError("invalid filesystem resource path")
-                    _validate_resource_path(name, path)
-                    signature = _FileSignature.from_dict(raw_signature)
-                    if not Path(signature.resolved_path).is_relative_to(directory):
-                        raise ValueError("snapshot resource is outside its directory")
-                    resources.append((path, signature))
-                records[name] = _DiscoveredSkill(
-                    root=root,
-                    directory=directory,
-                    metadata=metadata,
-                    skill_file=skill_file,
-                    resources=tuple(resources),
-                )
-
-            return records
-        except (KeyError, TypeError, ValueError, ValidationError) as exc:
+            records = self._discover_records_sync()
+        except SkillError as exc:
             raise SkillCatalogError() from exc
+        manifest = self._encode_snapshot(records.values())
+        if self._snapshot_id(manifest) != snapshot_id:
+            raise SkillCatalogError()
+        self._snapshot_records[snapshot_id] = records
+        return records
 
     def _record_from_snapshot(self, snapshot_id: str, name: str) -> _DiscoveredSkill:
         """Return one named skill from a validated persisted snapshot."""
