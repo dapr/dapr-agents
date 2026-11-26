@@ -32,11 +32,24 @@ from dapr_agents.types.message import (
     LLMChatResponseChunk,
     ToolCallChunk,
 )
+from dapr_agents.utils._config import coerce_token_count
 
 # Pre-release ("-alpha") signals that the streaming chunk schema is still alpha
 # and may change in future 1.x releases. Consumers branch on
 # AgentStreamChunk.schema_version for stability.
 STREAM_SCHEMA_VERSION = "1-alpha"
+
+_TOKEN_COUNT_FIELDS: frozenset[str] = frozenset(
+    {
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    }
+)
 
 
 class StreamChunkType(str, Enum):
@@ -277,6 +290,33 @@ class AssistantMessageAccumulator:
                 self._tool_calls[tc.index] = buf
             buf.merge(tc)
         if metadata:
+            if isinstance(metadata, dict):
+                # unwrap() returns a shallow copy of the metadata,
+                # so mutating its top-level fields in place is safe.
+                previous_usage = (
+                    self._last_metadata.get("usage")
+                    if isinstance(self._last_metadata, dict)
+                    else None
+                )
+
+                # Merge partial usage metadata because token counts may be split across stream chunks
+                if isinstance(previous_usage, dict):
+                    current_usage = metadata.get("usage")
+                    if isinstance(current_usage, dict):
+                        merged_usage = dict(previous_usage)
+                        for key, value in current_usage.items():
+                            if value is None:
+                                continue
+                            if (
+                                key in _TOKEN_COUNT_FIELDS
+                                and coerce_token_count(value) is None
+                            ):
+                                continue
+                            merged_usage[key] = value
+                        metadata["usage"] = merged_usage
+                    elif current_usage is None:
+                        metadata["usage"] = previous_usage
+
             self._last_metadata = metadata
         return candidate
 

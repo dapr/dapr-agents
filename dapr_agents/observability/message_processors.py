@@ -29,6 +29,14 @@ Key Functions:
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from ._token_usage import (
+    get_cache_creation_token_count,
+    get_cache_read_token_count,
+    get_input_token_count,
+    get_output_token_count,
+    get_total_token_count,
+)
+
 from .constants import (
     LLM_OUTPUT_MESSAGES,
     LLM_TOKEN_COUNT_COMPLETION,
@@ -439,11 +447,15 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
     attributes = {}
 
     try:
+        usage = None
         if isinstance(metadata, dict) and "usage" in metadata:
             usage = metadata["usage"]
-            attributes.update(extract_usage_from_dict(usage))
         elif hasattr(metadata, "usage"):
             usage = metadata.usage
+
+        if isinstance(usage, dict):
+            attributes.update(extract_usage_from_dict(usage))
+        elif usage is not None:
             attributes.update(extract_usage_from_object(usage))
     except Exception as e:
         logger.debug(f"Could not extract token counts: {e}")
@@ -453,25 +465,31 @@ def extract_token_usage(metadata: Any) -> Dict[str, Any]:
 
 def extract_usage_from_dict(usage: Dict[str, Any]) -> Dict[str, Any]:
     """Extract usage attributes from dictionary."""
-    attributes = {}
-    if "prompt_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_PROMPT] = usage["prompt_tokens"]
-    if "completion_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage["completion_tokens"]
-    if "total_tokens" in usage:
-        attributes[LLM_TOKEN_COUNT_TOTAL] = usage["total_tokens"]
+    attributes: Dict[str, Any] = {}
+    input_tokens = get_input_token_count(usage)
+    if input_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = input_tokens
+    output_tokens = get_output_token_count(usage)
+    if output_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = output_tokens
+    total_tokens = get_total_token_count(usage)
+    if total_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_TOTAL] = total_tokens
     return attributes
 
 
 def extract_usage_from_object(usage: Any) -> Dict[str, Any]:
     """Extract usage attributes from object."""
-    attributes = {}
-    if hasattr(usage, "prompt_tokens"):
-        attributes[LLM_TOKEN_COUNT_PROMPT] = usage.prompt_tokens
-    if hasattr(usage, "completion_tokens"):
-        attributes[LLM_TOKEN_COUNT_COMPLETION] = usage.completion_tokens
-    if hasattr(usage, "total_tokens"):
-        attributes[LLM_TOKEN_COUNT_TOTAL] = usage.total_tokens
+    attributes: Dict[str, Any] = {}
+    input_tokens = get_input_token_count(usage)
+    if input_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_PROMPT] = input_tokens
+    output_tokens = get_output_token_count(usage)
+    if output_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_COMPLETION] = output_tokens
+    total_tokens = get_total_token_count(usage)
+    if total_tokens is not None:
+        attributes[LLM_TOKEN_COUNT_TOTAL] = total_tokens
     return attributes
 
 
