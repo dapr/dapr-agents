@@ -13,7 +13,9 @@
 
 from typing import Sequence
 
+from dapr_agents import FileSystemSkillSource as RootFileSystemSkillSource
 from dapr_agents.skills import (
+    FileSystemSkillSource,
     Skill,
     SkillMetadata,
     SkillResource,
@@ -41,3 +43,15 @@ class FakeSkillSource:
 
 def test_skill_source_is_a_runtime_checkable_public_protocol() -> None:
     assert isinstance(FakeSkillSource(), SkillSource)
+
+
+def test_filesystem_source_is_public_from_both_packages() -> None:
+    assert RootFileSystemSkillSource is FileSystemSkillSource
+    assert (
+        "FileSystemSkillSource"
+        in __import__("dapr_agents.skills", fromlist=["__all__"]).__all__
+    )
+    assert (
+        "FileSystemSkillSource"
+        in __import__("dapr_agents", fromlist=["__all__"]).__all__
+    )

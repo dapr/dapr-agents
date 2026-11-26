@@ -67,7 +67,13 @@ from dapr_agents.llm.openai import (
     OpenAIEmbeddingClient,
 )
 from dapr_agents.tool import AgentTool, tool
-from dapr_agents.skills import Skill, SkillMetadata, SkillResource, SkillSource
+from dapr_agents.skills import (
+    FileSystemSkillSource,
+    Skill,
+    SkillMetadata,
+    SkillResource,
+    SkillSource,
+)
 from dapr_agents.workflow.runners import AgentRunner
 from dapr_agents.workflow.utils.core import call_agent, trigger_agent
 
@@ -99,6 +105,7 @@ __all__ = [
     "SkillMetadata",
     "SkillResource",
     "SkillSource",
+    "FileSystemSkillSource",
     "AgentRunner",
     "ActivationCallback",
     "ActivationContext",
