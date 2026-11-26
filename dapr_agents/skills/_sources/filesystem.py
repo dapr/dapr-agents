@@ -57,6 +57,23 @@ _MAX_RESOURCE_PATH_BYTES = 4096
 _MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
 _MAX_FRONTMATTER_DEPTH = 16
 _MAX_FRONTMATTER_NODES = 4096
+_DEFAULT_DISCOVERY_DEPTH = 3
+_INVALID_FILE_DESCRIPTOR = -1
+_SKILL_FILE_NAME = "SKILL.md"
+_SCRIPTS_DIRECTORY_NAME = "scripts"
+_FRONTMATTER_OPENING = b"---"
+_FRONTMATTER_DELIMITERS = frozenset((_FRONTMATTER_OPENING, b"..."))
+_UTF8_ENCODING = "utf-8"
+_BINARY_READ_MODE = "rb"
+_DEFAULT_MEDIA_TYPE = "application/octet-stream"
+_SNAPSHOT_VERSION = 1
+_SNAPSHOT_VERSION_KEY = "version"
+_SNAPSHOT_SKILLS_KEY = "skills"
+_SNAPSHOT_ROOT_KEY = "root"
+_SNAPSHOT_DIRECTORY_KEY = "directory"
+_SNAPSHOT_METADATA_KEY = "metadata"
+_SNAPSHOT_SKILL_FILE_KEY = "skill_file"
+_SNAPSHOT_RESOURCES_KEY = "resources"
 _STANDARD_FRONTMATTER_FIELDS = frozenset(
     {"name", "description", "license", "compatibility", "metadata"}
 )
@@ -123,7 +140,7 @@ class FileSystemSkillSource:
         self,
         skill_paths: Sequence[str | Path],
         *,
-        max_depth: int = 3,
+        max_depth: int = _DEFAULT_DISCOVERY_DEPTH,
         max_instructions_bytes: int = MAX_INSTRUCTIONS_BYTES,
         max_resource_bytes: int = MAX_RESOURCE_BYTES,
         source_id: str | None = None,
@@ -167,7 +184,7 @@ class FileSystemSkillSource:
         """Resolve the current filesystem version or reopen a persisted one."""
         try:
             if snapshot_id is None:
-                _, snapshot_id = await asyncio.to_thread(self._discover_sync)
+                snapshot_id = await asyncio.to_thread(self._discover_sync)
             else:
                 await asyncio.to_thread(self._records_from_snapshot, snapshot_id)
             return snapshot_id
@@ -179,6 +196,8 @@ class FileSystemSkillSource:
             raise SkillAccessError() from exc
         except Exception as exc:  # noqa: BLE001 - redact parser details
             logger.error("Filesystem snapshot resolution failed", exc_info=True)
+            # Discovery failures are source errors; persisted-ID failures mean
+            # the durable catalog cannot be reopened safely.
             if snapshot_id is None:
                 raise SkillMalformedError() from exc
             raise SkillCatalogError() from exc
@@ -188,8 +207,7 @@ class FileSystemSkillSource:
     ) -> Sequence[SkillMetadata]:
         """Return metadata from a pinned filesystem snapshot."""
         try:
-            snapshot_id = await self.resolve_snapshot(snapshot_id=snapshot_id)
-            records = await asyncio.to_thread(self._records_from_snapshot, snapshot_id)
+            records = await self._records_for_snapshot(snapshot_id)
             return [record.metadata for record in records.values()]
         except SkillError as exc:
             logger.warning("Filesystem skill discovery failed: %s", exc)
@@ -204,10 +222,7 @@ class FileSystemSkillSource:
     async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         """Load instructions and resource names from a pinned snapshot."""
         try:
-            snapshot_id = await self.resolve_snapshot(snapshot_id=snapshot_id)
-            record = await asyncio.to_thread(
-                self._record_from_snapshot, snapshot_id, name
-            )
+            record = await self._record_for_snapshot(name, snapshot_id)
             return await asyncio.to_thread(self._load_record_sync, record)
         except SkillError as exc:
             logger.warning("Filesystem skill activation failed: %s", exc)
@@ -230,10 +245,7 @@ class FileSystemSkillSource:
         """Read one bounded resource from a pinned snapshot."""
         _validate_resource_path(name, path)
         try:
-            snapshot_id = await self.resolve_snapshot(snapshot_id=snapshot_id)
-            record = await asyncio.to_thread(
-                self._record_from_snapshot, snapshot_id, name
-            )
+            record = await self._record_for_snapshot(name, snapshot_id)
             return await asyncio.to_thread(self._read_resource_sync, record, path)
         except SkillError as exc:
             logger.warning("Filesystem skill resource read failed: %s", exc)
@@ -251,22 +263,41 @@ class FileSystemSkillSource:
             )
             raise SkillMalformedError(skill_name=name, path=path) from exc
 
-    def _discover_sync(self) -> tuple[list[SkillMetadata], str]:
+    async def _records_for_snapshot(
+        self, snapshot_id: str | None
+    ) -> dict[str, _DiscoveredSkill]:
+        """Resolve a snapshot and return every validated skill record."""
+        snapshot_id = await self.resolve_snapshot(snapshot_id=snapshot_id)
+        return await asyncio.to_thread(self._records_from_snapshot, snapshot_id)
+
+    async def _record_for_snapshot(
+        self, name: str, snapshot_id: str | None
+    ) -> _DiscoveredSkill:
+        """Resolve a snapshot and return one validated skill record."""
+        snapshot_id = await self.resolve_snapshot(snapshot_id=snapshot_id)
+        return await asyncio.to_thread(self._record_from_snapshot, snapshot_id, name)
+
+    def _discover_sync(self) -> str:
+        """Discover skills and serialize their metadata and file inventory."""
         discovered: list[_DiscoveredSkill] = []
         names: set[str] = set()
         total_resources = 0
+
         for root in self.skill_paths:
             if not root.exists() or not root.is_dir():
                 raise SkillAccessError(path=str(root))
             root = root.resolve(strict=True)
+
             for directory in self._skill_directories(root, root, 0, set()):
                 skill_file = self._validated_skill_file(directory, root)
                 metadata = self._read_frontmatter(skill_file, root, directory.name)
+
                 if metadata.name != directory.name:
                     raise SkillMalformedError(skill_name=metadata.name)
                 if metadata.name in names:
                     raise SkillCatalogError(skill_name=metadata.name)
                 names.add(metadata.name)
+
                 resources = self._resource_inventory(directory, root, metadata.name)
                 total_resources += len(resources)
                 if total_resources > _MAX_TOTAL_RESOURCE_FILES:
@@ -284,7 +315,7 @@ class FileSystemSkillSource:
                     raise SkillCatalogError(skill_name=metadata.name)
 
         snapshot = self._encode_snapshot(discovered)
-        return [record.metadata for record in discovered], snapshot
+        return snapshot
 
     def _skill_directories(
         self,
@@ -293,18 +324,23 @@ class FileSystemSkillSource:
         depth: int,
         visited: set[Path],
     ) -> Iterator[Path]:
+        """Yield bounded, in-root directories containing a ``SKILL.md`` file."""
         resolved_directory = directory.resolve(strict=True)
+
+        # Resolve before descending so symlink cycles cannot evade the visit cap.
         if resolved_directory in visited:
             return
         if len(visited) >= _MAX_DISCOVERY_DIRECTORIES:
             raise SkillCatalogError(path=str(directory))
         visited.add(resolved_directory)
-        skill_file = directory / "SKILL.md"
+
+        skill_file = directory / _SKILL_FILE_NAME
         if skill_file.is_file():
             yield directory
             return
         if depth >= self.max_depth:
             return
+
         try:
             entries = []
             for entry in directory.iterdir():
@@ -317,6 +353,7 @@ class FileSystemSkillSource:
             raise SkillAccessError(path=str(directory)) from exc
         if len(entries) > _MAX_DIRECTORY_ENTRIES:
             raise SkillCatalogError(path=str(directory))
+
         for entry in sorted(entries, key=lambda item: item.name):
             if entry.name.startswith(".") or not entry.is_dir():
                 continue
@@ -326,75 +363,81 @@ class FileSystemSkillSource:
                 raise SkillAccessError(path=str(entry)) from exc
             if not resolved.is_relative_to(root):
                 raise SkillUnsafePathError(path=str(entry))
+
             yield from self._skill_directories(entry, root, depth + 1, visited)
 
     def _validated_skill_file(self, directory: Path, root: Path) -> Path:
+        """Resolve ``SKILL.md`` and reject links outside its skill and root."""
         skill_directory = directory.resolve(strict=True)
-        skill_file = directory / "SKILL.md"
+        skill_file = directory / _SKILL_FILE_NAME
         resolved = skill_file.resolve(strict=True)
         if (
             not skill_directory.is_relative_to(root)
             or not resolved.is_relative_to(skill_directory)
             or not resolved.is_file()
         ):
-            raise SkillUnsafePathError(path="SKILL.md")
+            raise SkillUnsafePathError(path=_SKILL_FILE_NAME)
         return resolved
 
     def _read_frontmatter(
         self, skill_file: Path, root: Path, skill_name: str
     ) -> SkillMetadata:
-        file_descriptor = -1
+        """Read and parse a bounded ``SKILL.md`` through a root-relative fd."""
+        file_descriptor = _INVALID_FILE_DESCRIPTOR
         try:
+            # Open relative to the configured root; do not trust a path lookup
+            # that could be redirected between validation and reading.
             file_descriptor, _ = self._open_relative_path(
-                root, skill_file, skill_name, "SKILL.md"
+                root, skill_file, skill_name, _SKILL_FILE_NAME
             )
-            with os.fdopen(file_descriptor, "rb") as document:
-                file_descriptor = -1
+            with os.fdopen(file_descriptor, _BINARY_READ_MODE) as document:
+                file_descriptor = _INVALID_FILE_DESCRIPTOR
                 content = document.read(self.max_instructions_bytes + 1)
+
             if len(content) > self.max_instructions_bytes:
-                raise SkillSizeLimitError(skill_name=skill_name, path="SKILL.md")
-            first_line, frontmatter = _frontmatter_parts(content)
-            if first_line.strip() != b"---":
-                raise SkillMalformedError(skill_name=skill_name, path="SKILL.md")
+                raise SkillSizeLimitError(skill_name=skill_name, path=_SKILL_FILE_NAME)
+            return self._parse_skill_metadata(content, skill_name)
         except SkillError:
             raise
-        except UnicodeDecodeError as exc:
-            raise SkillMalformedError(skill_name=skill_name, path="SKILL.md") from exc
         except OSError as exc:
-            raise SkillAccessError(skill_name=skill_name, path="SKILL.md") from exc
+            raise SkillAccessError(
+                skill_name=skill_name, path=_SKILL_FILE_NAME
+            ) from exc
         finally:
-            if file_descriptor >= 0:
+            if file_descriptor != _INVALID_FILE_DESCRIPTOR:
                 os.close(file_descriptor)
+
+    @staticmethod
+    def _parse_skill_metadata(content: bytes, skill_name: str) -> SkillMetadata:
         try:
-            raw = yaml.safe_load(frontmatter.decode("utf-8"))
+            first_line, frontmatter = _frontmatter_parts(content)
+
+            if first_line.strip() != _FRONTMATTER_OPENING:
+                raise SkillMalformedError(skill_name=skill_name, path=_SKILL_FILE_NAME)
+
+            raw = yaml.safe_load(frontmatter.decode(_UTF8_ENCODING))
             _validate_frontmatter_value(raw)
+        except SkillError:
+            raise
         except Exception as exc:  # noqa: BLE001 - redact parser details
-            raise SkillMalformedError(skill_name=skill_name, path="SKILL.md") from exc
+            raise SkillMalformedError(
+                skill_name=skill_name, path=_SKILL_FILE_NAME
+            ) from exc
         return _metadata_from_frontmatter(raw, skill_name)
 
     def _load_record_sync(self, record: _DiscoveredSkill) -> Skill:
+        """Revalidate a snapshot record and materialize its lazy resource map."""
         self._validate_snapshot_record(record, include_resources=True)
+
         content = self._read_bounded_file(
             record.root, record.skill_file, record.metadata.name
         )
-        try:
-            first_line, frontmatter = _frontmatter_parts(content)
-            if first_line.strip() != b"---":
-                raise SkillMalformedError(
-                    skill_name=record.metadata.name, path="SKILL.md"
-                )
-            raw = yaml.safe_load(frontmatter.decode("utf-8"))
-            _validate_frontmatter_value(raw)
-            metadata = _metadata_from_frontmatter(raw, record.metadata.name)
-        except SkillError:
-            raise
-        except (UnicodeDecodeError, yaml.YAMLError, ValueError) as exc:
-            raise SkillMalformedError(
-                skill_name=record.metadata.name, path="SKILL.md"
-            ) from exc
+        metadata = self._parse_skill_metadata(content, record.metadata.name)
+
         if metadata.name != record.directory.name:
             raise SkillMalformedError(skill_name=record.metadata.name)
         instructions = _frontmatter_body(content)
+
         resources = {
             path: SkillResource(
                 path=path,
@@ -410,7 +453,10 @@ class FileSystemSkillSource:
         )
 
     def _read_resource_sync(self, record: _DiscoveredSkill, path: str) -> SkillResource:
+        """Revalidate and read one resource recorded in the immutable inventory."""
+        # Validate the recorded inventory before resolving the requested path.
         self._validate_snapshot_record(record, path=path)
+
         skill_directory = record.directory.resolve(strict=True)
         candidate = record.directory.joinpath(*path.split("/"))
         try:
@@ -423,67 +469,80 @@ class FileSystemSkillSource:
             skill_directory
         ) or not resolved_candidate.is_relative_to(record.root):
             raise SkillUnsafePathError(skill_name=record.metadata.name, path=path)
+
         skill_file = Path(record.skill_file.resolved_path)
         if (
             resolved_candidate == skill_file
-            or "scripts" in resolved_candidate.relative_to(skill_directory).parts
+            or _SCRIPTS_DIRECTORY_NAME
+            in resolved_candidate.relative_to(skill_directory).parts
         ):
             raise SkillUnsafePathError(skill_name=record.metadata.name, path=path)
+
         if not resolved_candidate.is_file():
             raise SkillNotFoundError(skill_name=record.metadata.name, path=path)
+
         expected = dict(record.resources).get(path)
         if expected is None:
             raise SkillAccessError(skill_name=record.metadata.name, path=path)
         if resolved_candidate != Path(expected.resolved_path):
             raise SkillAccessError(skill_name=record.metadata.name, path=path)
-        file_descriptor, _ = self._open_snapshot_file(
-            record.root, expected, record.metadata.name, path
+
+        content = self._read_snapshot_bytes(
+            record.root,
+            expected,
+            record.metadata.name,
+            path,
+            self.max_resource_bytes,
         )
-        try:
-            file_stat = os.fstat(file_descriptor)
-            if not stat.S_ISREG(file_stat.st_mode) or not self._stat_matches(
-                expected, file_stat
-            ):
-                raise SkillAccessError(skill_name=record.metadata.name, path=path)
-            with os.fdopen(file_descriptor, "rb") as resource_file:
-                file_descriptor = -1
-                content = resource_file.read(self.max_resource_bytes + 1)
-        finally:
-            if file_descriptor >= 0:
-                os.close(file_descriptor)
-        if len(content) > self.max_resource_bytes:
-            raise SkillSizeLimitError(skill_name=record.metadata.name, path=path)
         return SkillResource(path=path, content=content, media_type=_media_type(path))
 
     def _read_bounded_file(
         self, root: Path, signature: _FileSignature, skill_name: str
     ) -> bytes:
-        file_descriptor, _ = self._open_snapshot_file(
-            root, signature, skill_name, "SKILL.md"
+        """Read bounded bytes from a signed snapshot file."""
+        return self._read_snapshot_bytes(
+            root, signature, skill_name, _SKILL_FILE_NAME, self.max_instructions_bytes
         )
+
+    def _read_snapshot_bytes(
+        self,
+        root: Path,
+        signature: _FileSignature,
+        skill_name: str,
+        path: str,
+        max_bytes: int,
+    ) -> bytes:
+        """Read a validated snapshot file through a descriptor."""
+        file_descriptor, _ = self._open_snapshot_file(root, signature, skill_name, path)
+
         try:
             file_stat = os.fstat(file_descriptor)
             if not stat.S_ISREG(file_stat.st_mode) or not self._stat_matches(
                 signature, file_stat
             ):
-                raise SkillAccessError(skill_name=skill_name, path="SKILL.md")
-            with os.fdopen(file_descriptor, "rb") as document:
-                file_descriptor = -1
-                content = document.read(self.max_instructions_bytes + 1)
+                raise SkillAccessError(skill_name=skill_name, path=path)
+
+            with os.fdopen(file_descriptor, _BINARY_READ_MODE) as snapshot_file:
+                file_descriptor = _INVALID_FILE_DESCRIPTOR
+                content = snapshot_file.read(max_bytes + 1)
         finally:
-            if file_descriptor >= 0:
+            if file_descriptor != _INVALID_FILE_DESCRIPTOR:
                 os.close(file_descriptor)
-        if len(content) > self.max_instructions_bytes:
-            raise SkillSizeLimitError(skill_name=skill_name, path="SKILL.md")
+
+        if len(content) > max_bytes:
+            raise SkillSizeLimitError(skill_name=skill_name, path=path)
         return content
 
     def _resource_inventory(
         self, directory: Path, root: Path, skill_name: str
     ) -> tuple[tuple[str, _FileSignature], ...]:
+        """Build a sorted, bounded inventory of readable non-script resources."""
         paths: list[tuple[str, _FileSignature]] = []
         pending = [directory]
         visited: set[Path] = set()
+
         skill_directory = directory.resolve(strict=True)
+        skill_file = self._validated_skill_file(directory, root)
         while pending:
             current = pending.pop()
             resolved_current = current.resolve(strict=True)
@@ -494,6 +553,7 @@ class FileSystemSkillSource:
             visited.add(resolved_current)
             if not resolved_current.is_relative_to(skill_directory):
                 raise SkillUnsafePathError(skill_name=skill_name)
+
             entries = []
             for entry in current.iterdir():
                 if len(entries) >= _MAX_DIRECTORY_ENTRIES:
@@ -504,19 +564,23 @@ class FileSystemSkillSource:
                 parts = relative.split("/")
                 if (
                     len(parts) > _MAX_RESOURCE_DEPTH
-                    or len(relative.encode("utf-8")) > _MAX_RESOURCE_PATH_BYTES
+                    or len(relative.encode(_UTF8_ENCODING)) > _MAX_RESOURCE_PATH_BYTES
                 ):
                     raise SkillCatalogError(skill_name=skill_name, path=relative)
                 if any(part.startswith(".") for part in parts):
                     continue
-                if parts[0] == "scripts" or relative == "SKILL.md":
+                first_part, *_ = parts
+                if (
+                    first_part == _SCRIPTS_DIRECTORY_NAME
+                    or relative == _SKILL_FILE_NAME
+                ):
                     continue
                 resolved = entry.resolve(strict=True)
                 if not resolved.is_relative_to(
                     skill_directory
                 ) or not resolved.is_relative_to(root):
                     raise SkillUnsafePathError(skill_name=skill_name, path=relative)
-                if resolved == Path(self._validated_skill_file(directory, root)):
+                if resolved == skill_file:
                     raise SkillUnsafePathError(skill_name=skill_name, path=relative)
                 if entry.is_dir():
                     pending.append(entry)
@@ -533,14 +597,21 @@ class FileSystemSkillSource:
         path: str | None = None,
         include_resources: bool = False,
     ) -> None:
+        """Ensure the live filesystem still matches a recorded snapshot record."""
         try:
             skill_directory = record.directory.resolve(strict=True)
             if not skill_directory.is_relative_to(record.root):
                 raise SkillUnsafePathError(skill_name=record.metadata.name, path=path)
-            current_skill_file = (record.directory / "SKILL.md").resolve(strict=True)
+            current_skill_file = (record.directory / _SKILL_FILE_NAME).resolve(
+                strict=True
+            )
             if current_skill_file != Path(record.skill_file.resolved_path):
-                raise SkillAccessError(skill_name=record.metadata.name, path="SKILL.md")
+                raise SkillAccessError(
+                    skill_name=record.metadata.name, path=_SKILL_FILE_NAME
+                )
+
             self._assert_signature(record.skill_file)
+
             if include_resources:
                 for resource_path, signature in record.resources:
                     self._assert_signature(signature)
@@ -562,6 +633,7 @@ class FileSystemSkillSource:
         skill_name: str,
         path: str,
     ) -> tuple[int, Path]:
+        """Open a signed file relative to its configured root."""
         return self._open_relative_path(
             root, Path(signature.resolved_path), skill_name, path
         )
@@ -569,6 +641,7 @@ class FileSystemSkillSource:
     def _open_relative_path(
         self, root: Path, target: Path, skill_name: str, path: str
     ) -> tuple[int, Path]:
+        """Open a root-relative path without following symlinks during traversal."""
         try:
             relative = target.relative_to(root)
         except ValueError as exc:
@@ -578,27 +651,34 @@ class FileSystemSkillSource:
         ):
             raise SkillUnsafePathError(skill_name=skill_name, path=path)
 
+        # Walk directory descriptors with O_NOFOLLOW to close symlink/TOCTOU
+        # races between the snapshot checks and the final file open.
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         directory_flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+
         file_flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
         file_flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+        *directory_parts, file_name = relative.parts
+
         directory_descriptor = os.open(root, directory_flags)
         try:
-            for component in relative.parts[:-1]:
+            for component in directory_parts:
                 next_descriptor = os.open(
                     component, directory_flags, dir_fd=directory_descriptor
                 )
                 os.close(directory_descriptor)
                 directory_descriptor = next_descriptor
             file_descriptor = os.open(
-                relative.parts[-1], file_flags, dir_fd=directory_descriptor
+                file_name, file_flags, dir_fd=directory_descriptor
             )
         finally:
             os.close(directory_descriptor)
-        return file_descriptor, root.joinpath(*relative.parts)
+
+        return file_descriptor, root.joinpath(*directory_parts, file_name)
 
     @staticmethod
     def _assert_signature(signature: _FileSignature) -> None:
+        """Raise if a live file no longer matches its recorded signature."""
         path = Path(signature.resolved_path)
         current = path.stat()
         if not stat.S_ISREG(current.st_mode) or not FileSystemSkillSource._stat_matches(
@@ -617,8 +697,10 @@ class FileSystemSkillSource:
 
     @staticmethod
     def _file_signature(path: Path) -> _FileSignature:
+        """Capture the identity and size attributes used for snapshot validation."""
         resolved = path.resolve(strict=True)
         file_stat = resolved.stat()
+
         if not stat.S_ISREG(file_stat.st_mode):
             raise SkillUnsafePathError(path=str(path))
         return _FileSignature(
@@ -630,15 +712,16 @@ class FileSystemSkillSource:
         )
 
     def _encode_snapshot(self, discovered: Sequence[_DiscoveredSkill]) -> str:
+        """Serialize discovered records into a bounded durable snapshot ID."""
         payload = {
-            "version": 1,
-            "skills": {
+            _SNAPSHOT_VERSION_KEY: _SNAPSHOT_VERSION,
+            _SNAPSHOT_SKILLS_KEY: {
                 record.metadata.name: {
-                    "root": str(record.root),
-                    "directory": str(record.directory),
-                    "metadata": record.metadata.model_dump(mode="json"),
-                    "skill_file": record.skill_file.to_dict(),
-                    "resources": {
+                    _SNAPSHOT_ROOT_KEY: str(record.root),
+                    _SNAPSHOT_DIRECTORY_KEY: str(record.directory),
+                    _SNAPSHOT_METADATA_KEY: record.metadata.model_dump(mode="json"),
+                    _SNAPSHOT_SKILL_FILE_KEY: record.skill_file.to_dict(),
+                    _SNAPSHOT_RESOURCES_KEY: {
                         path: signature.to_dict()
                         for path, signature in record.resources
                     },
@@ -647,40 +730,49 @@ class FileSystemSkillSource:
             },
         }
         snapshot = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        if len(snapshot.encode("utf-8")) > _MAX_SNAPSHOT_BYTES:
+
+        if len(snapshot.encode(_UTF8_ENCODING)) > _MAX_SNAPSHOT_BYTES:
             raise SkillCatalogError()
         return snapshot
 
     def _records_from_snapshot(self, snapshot_id: str) -> dict[str, _DiscoveredSkill]:
-        if len(snapshot_id.encode("utf-8")) > _MAX_SNAPSHOT_BYTES:
+        """Decode and validate every record in a persisted filesystem snapshot."""
+        if len(snapshot_id.encode(_UTF8_ENCODING)) > _MAX_SNAPSHOT_BYTES:
             raise SkillCatalogError()
+
         try:
             payload = json.loads(snapshot_id)
+            # Snapshot IDs are serialized source state, so validate every path
+            # and signature before exposing any record to a lazy read.
             if (
                 not isinstance(payload, dict)
-                or payload.get("version") != 1
-                or not isinstance(payload.get("skills"), dict)
+                or payload.get(_SNAPSHOT_VERSION_KEY) != _SNAPSHOT_VERSION
+                or not isinstance(payload.get(_SNAPSHOT_SKILLS_KEY), dict)
             ):
                 raise ValueError("unsupported filesystem snapshot")
+
             records: dict[str, _DiscoveredSkill] = {}
-            for name, raw in payload["skills"].items():
+            for name, raw in payload[_SNAPSHOT_SKILLS_KEY].items():
                 if not isinstance(name, str) or not isinstance(raw, dict):
                     raise ValueError("invalid filesystem skill snapshot")
-                root = Path(raw["root"])
-                directory = Path(raw["directory"])
+                root = Path(raw[_SNAPSHOT_ROOT_KEY])
+                directory = Path(raw[_SNAPSHOT_DIRECTORY_KEY])
+
                 if root not in self.skill_paths:
                     raise ValueError("snapshot root is not configured")
-                metadata = SkillMetadata.model_validate(raw["metadata"])
+                metadata = SkillMetadata.model_validate(raw[_SNAPSHOT_METADATA_KEY])
                 if metadata.name != name or directory.name != name:
                     raise ValueError("snapshot skill identity mismatch")
                 if not directory.is_relative_to(root):
                     raise ValueError("snapshot skill directory is outside its root")
-                skill_file = _FileSignature.from_dict(raw["skill_file"])
+
+                skill_file = _FileSignature.from_dict(raw[_SNAPSHOT_SKILL_FILE_KEY])
                 if not Path(skill_file.resolved_path).is_relative_to(directory):
                     raise ValueError("snapshot skill file is outside its directory")
-                raw_resources = raw["resources"]
+                raw_resources = raw[_SNAPSHOT_RESOURCES_KEY]
                 if not isinstance(raw_resources, dict):
                     raise ValueError("invalid filesystem resources")
+
                 resources = []
                 for path, raw_signature in raw_resources.items():
                     if not isinstance(path, str):
@@ -697,11 +789,13 @@ class FileSystemSkillSource:
                     skill_file=skill_file,
                     resources=tuple(resources),
                 )
+
             return records
         except (KeyError, TypeError, ValueError, ValidationError) as exc:
             raise SkillCatalogError() from exc
 
     def _record_from_snapshot(self, snapshot_id: str, name: str) -> _DiscoveredSkill:
+        """Return one named skill from a validated persisted snapshot."""
         records = self._records_from_snapshot(snapshot_id)
         try:
             return records[name]
@@ -710,52 +804,72 @@ class FileSystemSkillSource:
 
 
 def _frontmatter_parts(content: bytes) -> tuple[bytes, bytes]:
+    """Split a document into its opening line and frontmatter bytes."""
+    # Only the first frontmatter delimiter is positional; the next delimiter
+    # closes the header and leaves the instruction body untouched.
     lines = content.splitlines(keepends=True)
     if not lines:
         raise ValueError("empty skill document")
+    first_line, *body_lines = lines
     closing = next(
         (
             index
-            for index, line in enumerate(lines[1:], start=1)
-            if line.strip() in {b"---", b"..."}
+            for index, line in enumerate(body_lines)
+            if line.strip() in _FRONTMATTER_DELIMITERS
         ),
         None,
     )
     if closing is None:
         raise ValueError("unclosed frontmatter")
-    return lines[0], b"".join(lines[1:closing])
+    return first_line, b"".join(body_lines[:closing])
 
 
 def _frontmatter_body(content: bytes) -> str:
+    """Return the UTF-8 instruction body after the frontmatter delimiter."""
     lines = content.splitlines(keepends=True)
+    if not lines:
+        raise ValueError("empty skill document")
+    _, *body_lines = lines
     closing = next(
         index
-        for index, line in enumerate(lines[1:], start=1)
-        if line.strip() in {b"---", b"..."}
+        for index, line in enumerate(body_lines)
+        if line.strip() in _FRONTMATTER_DELIMITERS
     )
-    return b"".join(lines[closing + 1 :]).decode("utf-8").lstrip("\r\n")
+    return b"".join(body_lines[closing + 1 :]).decode(_UTF8_ENCODING).lstrip("\r\n")
+
+
+@dataclass
+class _FrontmatterValidationState:
+    """Shared node counter for recursive frontmatter validation."""
+
+    nodes: int = 0
 
 
 def _validate_frontmatter_value(
-    value: Any, *, depth: int = 0, nodes: list[int] | None = None
+    value: Any,
+    *,
+    depth: int = 0,
+    state: _FrontmatterValidationState | None = None,
 ) -> None:
-    if nodes is None:
-        nodes = [0]
-    nodes[0] += 1
-    if nodes[0] > _MAX_FRONTMATTER_NODES or depth > _MAX_FRONTMATTER_DEPTH:
+    """Reject frontmatter trees exceeding the parser's depth or node limits."""
+    if state is None:
+        state = _FrontmatterValidationState()
+    state.nodes += 1
+    if state.nodes > _MAX_FRONTMATTER_NODES or depth > _MAX_FRONTMATTER_DEPTH:
         raise ValueError("frontmatter is too complex")
     if isinstance(value, dict):
         for key, item in value.items():
-            _validate_frontmatter_value(key, depth=depth + 1, nodes=nodes)
-            _validate_frontmatter_value(item, depth=depth + 1, nodes=nodes)
+            _validate_frontmatter_value(key, depth=depth + 1, state=state)
+            _validate_frontmatter_value(item, depth=depth + 1, state=state)
     elif isinstance(value, list):
         for item in value:
-            _validate_frontmatter_value(item, depth=depth + 1, nodes=nodes)
+            _validate_frontmatter_value(item, depth=depth + 1, state=state)
 
 
 def _metadata_from_frontmatter(raw: Any, skill_name: str) -> SkillMetadata:
+    """Map standard and extension frontmatter fields to skill metadata."""
     if not isinstance(raw, dict):
-        raise SkillMalformedError(skill_name=skill_name, path="SKILL.md")
+        raise SkillMalformedError(skill_name=skill_name, path=_SKILL_FILE_NAME)
     try:
         standard = {key: raw[key] for key in _STANDARD_FRONTMATTER_FIELDS if key in raw}
         extra = {
@@ -765,25 +879,27 @@ def _metadata_from_frontmatter(raw: Any, skill_name: str) -> SkillMetadata:
         }
         return SkillMetadata(**standard, extra_frontmatter=extra)
     except (TypeError, ValueError, ValidationError) as exc:
-        raise SkillMalformedError(skill_name=skill_name, path="SKILL.md") from exc
+        raise SkillMalformedError(skill_name=skill_name, path=_SKILL_FILE_NAME) from exc
 
 
 def _validate_resource_path(name: str, path: str) -> None:
+    """Reject resource paths that escape the skill or target hidden content."""
     try:
         _validate_skill_path(path)
     except (TypeError, ValueError) as exc:
         raise SkillUnsafePathError(skill_name=name, path=path) from exc
     parts = path.split("/")
+    first_part, *_ = parts
     if (
         any(part.startswith(".") for part in parts)
-        or path == "SKILL.md"
-        or parts[0] == "scripts"
+        or path == _SKILL_FILE_NAME
+        or first_part == _SCRIPTS_DIRECTORY_NAME
     ):
         raise SkillUnsafePathError(skill_name=name, path=path)
 
 
 def _media_type(path: str) -> str:
-    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return mimetypes.guess_type(path)[0] or _DEFAULT_MEDIA_TYPE
 
 
 __all__ = ["FileSystemSkillSource"]
