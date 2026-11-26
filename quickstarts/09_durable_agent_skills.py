@@ -14,9 +14,10 @@
 from pathlib import Path
 
 from dapr_agents import AgentRunner, DurableAgent, FileSystemSkillSource
-from dapr_agents.agents.configs import AgentStateConfig
+from dapr_agents.agents.configs import AgentExecutionConfig, AgentStateConfig
 from dapr_agents.llm import DaprChatClient
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
+from dapr_agents.types.agent import ToolExecutionMode
 
 
 SKILLS_PATH = Path(__file__).resolve().parent / "skills"
@@ -29,10 +30,13 @@ def main() -> None:
         goal="Route delayed shipment exceptions using the local shipment policy.",
         instructions=[
             "For every delayed shipment, activate the shipment-exceptions skill "
-            "and read its exception-routing-policy.md reference before answering.",
+            "and follow its instructions before answering.",
             "Report the applicable route and briefly summarize the policy evidence.",
         ],
         llm=DaprChatClient(component_name="llm-provider"),
+        execution=AgentExecutionConfig(
+            tool_execution_mode=ToolExecutionMode.SEQUENTIAL,
+        ),
         state=AgentStateConfig(
             store=StateStoreService(store_name="agent-workflow"),
         ),

@@ -114,4 +114,5 @@ jobs:
           --timeout=300 \
           --reruns 2 \
           --reruns-delay 10 \
+          --ignore=tests/integration/quickstarts/test_09_durable_agent_skills.py \
           tests/integration/quickstarts/

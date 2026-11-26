@@ -290,7 +290,8 @@ def run_quickstart_or_examples_script(
                 "method": "POST",
                 "data": {"task": "..."},
                 "headers": {"Content-Type": "application/json"},
-                "wait_seconds": 5  # Time to wait for server to start (default: 5)
+                "wait_seconds": 5,  # Time to wait for server to start (default: 5)
+                "request_timeout": 120,  # HTTP request timeout in seconds (default: 30)
             }
         trigger_pubsub: Optional dict with pubsub trigger details. Format:
             {
@@ -1465,13 +1466,27 @@ def _run_with_curl_trigger(
         response_status: Optional[int] = None
         logger.info(f"Sending {method} request to {url}")
         try:
+            request_timeout = trigger_curl.get("request_timeout", 30)
             if method.upper() == "POST":
-                response = requests.post(url, json=data, headers=headers, timeout=30)
+                response = requests.post(
+                    url,
+                    json=data,
+                    headers=headers,
+                    timeout=request_timeout,
+                )
             elif method.upper() == "GET":
-                response = requests.get(url, headers=headers, timeout=30)
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    timeout=request_timeout,
+                )
             else:
                 response = requests.request(
-                    method, url, json=data, headers=headers, timeout=30
+                    method,
+                    url,
+                    json=data,
+                    headers=headers,
+                    timeout=request_timeout,
                 )
 
             response_status = response.status_code

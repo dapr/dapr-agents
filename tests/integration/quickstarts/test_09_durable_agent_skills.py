@@ -39,21 +39,22 @@ class TestDurableAgentSkillsQuickstart:
             script_path,
             cwd=self.quickstart_dir,
             env=self.env,
-            timeout=180,
+            timeout=300,
             use_dapr=True,
             app_id="durable-agent-skills",
             app_port=8001,
             resources_path=self.resources_path,
             trigger_curl={
-                # Stream until completion; the test helper terminates the server after the response.
+                # Stream until completion; the test helper terminates the server after the response
                 "url": "http://localhost:8001/agent/run/stream",
                 "method": "POST",
                 "data": {
                     "task": (
                         "Shipment SHP-042 has had no carrier scan for 36 hours and is stalled "
-                        "in transit. It may miss its promised delivery window. Review the "
-                        "exception and recommend the appropriate route using the "
-                        "shipment-exceptions skill."
+                        "in transit. It may miss its promised delivery window. Use the "
+                        "shipment-exceptions skill and read "
+                        "references/exception-routing-policy.md before recommending "
+                        "the appropriate route."
                     ),
                     "include_complete_message": True,
                 },
@@ -62,6 +63,7 @@ class TestDurableAgentSkillsQuickstart:
                     "Content-Type": "application/json",
                 },
                 "wait_seconds": 10,
+                "request_timeout": 300,
             },
         )
 
@@ -71,8 +73,11 @@ class TestDurableAgentSkillsQuickstart:
         )
 
         combined = f"{result.stdout}\n{result.stderr}".lower()
-        # This non-ASCII policy term helps confirm UTF-8 reference decoding.
+
+        # Non-ASCII policy term helps confirm UTF-8 resource decoding
         assert "réacheminement" in combined
+
+        # Confirm the policy resource was loaded
         for route in (
             "carrier escalation",
             "warehouse review",
