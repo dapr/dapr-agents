@@ -25,6 +25,7 @@ You will learn how to:
 6. **[Orchestrate multiple agents inside a workflow](#6-workflow-with-agent-activities)**
 7. **[Enable distributed tracing for agents with Zipkin](#7-durable-agent-trace-zipkin)**
 8. **[Hot-reload agent configuration at runtime](#8-durable-agent-hot-reload)**
+9. **[Load filesystem Agent Skills in a durable agent](#9-durable-agent-skills)**
 
 These examples form the foundation of the Dapr Agents programming model and illustrate how LLM reasoning, tool execution, durable workflows, and agent coordination fit together.
 
@@ -423,7 +424,48 @@ The agent starts with its initial role (`Original Role`) and subscribes to the D
 
 ---
 
-# 9. MCPServer Auto-Discovery
+# 9. Durable Agent Skills
+
+This example adds a local filesystem Agent Skill to a `DurableAgent`. The
+shipment-exception fixture demonstrates the progressive skills flow: the agent
+advertises the skill, activates it, and reads its UTF-8 routing policy only when
+needed.
+
+Start the quickstart with the standard Conversation API and workflow resources:
+
+```bash
+uv run dapr run --app-id durable-agent-skills --app-port 8001 --resources-path resources -- python 09_durable_agent_skills.py
+```
+
+In a separate terminal, submit a delayed shipment exception:
+
+```bash
+curl -i -X POST http://localhost:8001/agent/run \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Shipment SHP-042 is delayed in transit and may miss its delivery window. Use the shipment-exceptions skill, read its routing policy, and recommend the applicable route."}'
+```
+
+## Expected Behavior
+
+The durable agent advertises `shipment-exceptions`, activates the skill, and
+reads `references/exception-routing-policy.md` before recommending a route.
+The policy covers carrier escalation, warehouse review, customer notification,
+and manual review without requiring custom application tools or executable
+resources.
+
+## How This Works
+
+1. `FileSystemSkillSource` discovers the checked-in `skills/` directory resolved
+   relative to `09_durable_agent_skills.py`, so the process working directory is
+   irrelevant.
+2. The durable agent exposes the skill catalog and built-in skill tools through
+   its normal workflow path.
+3. The model activates `shipment-exceptions` and lazily loads its UTF-8 policy
+   reference before producing the routing recommendation.
+
+---
+
+# Advanced: MCPServer Auto-Discovery
 
 The MCPServer auto-discovery walkthrough — a `DurableAgent` that discovers MCP
 tools through the Dapr sidecar, plus the multi-server variant — has moved to
