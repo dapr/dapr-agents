@@ -172,6 +172,9 @@ class SkillStateStore:
             source_id = entry.get("_source_id")
             if not isinstance(source_id, str) or not source_id:
                 raise SkillCatalogError()
+            snapshot_id = entry.get("_snapshot_id")
+            if snapshot_id is not None and not isinstance(snapshot_id, str):
+                raise SkillCatalogError()
 
     def clear(self, instance_id: str) -> None:
         """Best-effort deletion of known skill-state records without blocking completion."""
@@ -330,6 +333,7 @@ class DurableSkillRuntime:
                 history,
             )
         except SkillError as exc:
+            logger.warning(f"Skill tool '{fn_name}' failed: {exc}")
             return f"Error executing skill '{fn_name}': {str(exc)}"
         except Exception:
             logger.exception(f"Unexpected skill tool failure for '{fn_name}'")

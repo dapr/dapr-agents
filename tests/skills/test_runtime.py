@@ -44,7 +44,15 @@ class InMemorySource:
         self.load_calls = 0
         self.read_calls = 0
 
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        expected = f"memory:{self.skill.name}"
+        if snapshot_id not in (None, expected):
+            raise SkillAccessError(skill_name=self.skill.name)
+        return expected
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         return [
             SkillMetadata(
                 name=self.skill.name,
@@ -56,12 +64,14 @@ class InMemorySource:
             )
         ]
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         self.load_calls += 1
         assert name == self.skill.name
         return self.skill
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         self.read_calls += 1
         assert name == self.skill.name
         return self.skill.resources[path]
@@ -72,7 +82,9 @@ class LazyResourceSource(InMemorySource):
         super().__init__(skill.model_copy(update={"resources": {}}))
         self.resource = next(iter(skill.resources.values()))
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         self.read_calls += 1
         assert name == self.skill.name
         assert path == self.resource.path
@@ -80,7 +92,7 @@ class LazyResourceSource(InMemorySource):
 
 
 class FailingSource(InMemorySource):
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise RuntimeError("credential=secret-token locator=private-bucket")
 
 
@@ -95,54 +107,69 @@ class RecordingSource(InMemorySource):
         super().__init__(skill)
         self.read_paths: list[str] = []
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         self.read_paths.append(path)
-        return await super().read_resource(name, path)
+        return await super().read_resource(name, path, snapshot_id=snapshot_id)
 
 
 class MalformedMetadataSource:
-    async def list_metadata(self) -> None:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        return "malformed"
+
+    async def list_metadata(self, *, snapshot_id: str | None = None) -> None:
         return None
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise AssertionError(name)
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise AssertionError((name, path))
 
 
 class MalformedLoadSource(InMemorySource):
-    async def load_skill(self, name: str) -> Any:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Any:
         return {"name": name}
 
 
 class MismatchedLoadSource(InMemorySource):
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         return self.skill.model_copy(update={"name": "different-skill"})
 
 
 class SkillErrorLoadSource(InMemorySource):
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise SkillAccessError(skill_name=name)
 
 
 class SkillErrorResourceSource(InMemorySource):
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise SkillAccessError(skill_name=name, path=path)
 
 
 class FailingResourceSource(InMemorySource):
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise RuntimeError("credential=secret-token")
 
 
 class MalformedResourceSource(InMemorySource):
-    async def read_resource(self, name: str, path: str) -> Any:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> Any:
         return {"path": path}
 
 
 class MismatchedResourceSource(InMemorySource):
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         return SkillResource(path="other.md", content="wrong")
 
 
@@ -152,7 +179,7 @@ class BlockingSource(InMemorySource):
         self.started = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         self.load_calls += 1
         self.started.set()
         await self.release.wait()
@@ -167,7 +194,9 @@ class BlockingResourceSource(InMemorySource):
         self.started = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         self.read_calls += 1
         self.started_reads += 1
         if self.started_reads == self.expected_reads:
@@ -181,39 +210,63 @@ class MultiSkillSource:
         self.skills = {skill.name: skill for skill in skills}
         self.load_calls = 0
 
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        expected = "memory:" + ",".join(sorted(self.skills))
+        if snapshot_id not in (None, expected):
+            raise SkillAccessError()
+        return expected
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         return [
             SkillMetadata(name=skill.name, description=skill.description)
             for skill in self.skills.values()
         ]
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         self.load_calls += 1
         return self.skills[name]
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         return self.skills[name].resources[path]
 
 
 class SkillErrorMetadataSource:
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        return "error"
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         raise SkillAccessError()
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise AssertionError(name)
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise AssertionError((name, path))
 
 
 class FailingMetadataSource:
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        return "failure"
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         raise RuntimeError("credential=secret-token locator=private-bucket")
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise AssertionError(name)
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise AssertionError((name, path))
 
 
@@ -430,7 +483,7 @@ async def test_binary_resource_is_rejected_without_base64(skill: Skill) -> None:
             "resources": {
                 "data.bin": SkillResource(
                     path="data.bin",
-                    content=b"binary",
+                    content=b"\x00binary",
                     media_type="application/octet-stream",
                 )
             }
@@ -442,6 +495,32 @@ async def test_binary_resource_is_rejected_without_base64(skill: Skill) -> None:
 
     with pytest.raises(SkillUnsupportedMediaTypeError):
         await adapter.read_resource("run-1", binary_skill.name, "data.bin", catalog)
+
+
+@pytest.mark.asyncio
+async def test_utf8_resource_with_unknown_extension_is_model_readable(
+    skill: Skill,
+) -> None:
+    text_skill = skill.model_copy(
+        update={
+            "resources": {
+                "notes.data": SkillResource(
+                    path="notes.data",
+                    content=b"plain UTF-8 text",
+                    media_type="application/octet-stream",
+                )
+            }
+        }
+    )
+    adapter = SkillRuntimeAdapter([text_skill])
+    catalog = await adapter.discover_catalog()
+    await adapter.load("run-1", text_skill.name, catalog)
+
+    result = await adapter.read_resource(
+        "run-1", text_skill.name, "notes.data", catalog
+    )
+
+    assert result.content == "plain UTF-8 text"
 
 
 @pytest.mark.asyncio

@@ -27,7 +27,12 @@ from dapr_agents.agents.configs import (
 )
 from dapr_agents.agents.durable import DurableAgent
 from dapr_agents.llm import OpenAIChatClient
-from dapr_agents.skills import Skill, SkillCatalogError, SkillMetadata, SkillResource
+from dapr_agents.skills import (
+    Skill,
+    SkillCatalogError,
+    SkillMetadata,
+    SkillResource,
+)
 from dapr_agents.skills._durable import SkillStateStore
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
 from dapr_agents.storage.daprstores.stateservice import StateStoreService
@@ -41,14 +46,24 @@ class FakeSource:
         self.load_calls = 0
         self.read_calls = 0
 
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        expected = f"memory:{self.skill.name}"
+        if snapshot_id not in (None, expected):
+            raise ValueError(snapshot_id)
+        return expected
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         return [SkillMetadata(name=self.skill.name, description=self.skill.description)]
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         self.load_calls += 1
         return self.skill
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         self.read_calls += 1
         return self.skill.resources[path]
 

@@ -33,16 +33,28 @@ class SkillSource(Protocol):
     fallback identities fail closed. Source methods are not model-facing tools.
     """
 
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
-        """Return catalog metadata for skills available from this source."""
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        """Resolve the current or a persisted source snapshot ID."""
         ...
 
-    async def load_skill(self, name: str) -> Skill:
-        """Load instructions and resource metadata for the named skill."""
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
+        """Return catalog metadata for the selected source snapshot."""
         ...
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
-        """Read one resource belonging to the named skill."""
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
+        """Load instructions and resource metadata from a source snapshot."""
+        ...
+
+    async def read_resource(
+        self,
+        name: str,
+        path: str,
+        *,
+        snapshot_id: str | None = None,
+    ) -> SkillResource:
+        """Read one resource from a source snapshot."""
         ...
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 from concurrent.futures import Future
 from dataclasses import dataclass, field
@@ -52,6 +53,8 @@ from dapr_agents.skills.source import SkillSource
 # cached value. The leading underscore keeps these implementation details
 # private to the skills package.
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+logger = logging.getLogger(__name__)
 
 _TEXT_MEDIA_TYPES = {
     "application/json",
@@ -99,18 +102,23 @@ class ReadSkillResourceResult(BaseModel):
 
 @dataclass(frozen=True)
 class _SkillCatalogEntry:
-    """Internal catalog entry retaining provenance for skill-source routing."""
+    """Internal catalog entry retaining source routing and snapshot state."""
 
     metadata: SkillMetadata
     # Internal source-routing identity; never expose it to the model. The
     # model-facing identity remains the ordinary skill name.
     source_id: str
+    # Filesystem sources use this to reopen the exact metadata-only snapshot
+    # after worker restart. Other sources leave it unset.
+    snapshot_id: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         result = self.metadata.model_dump(mode="json")
         # Provenance is consumed only by the runtime adapter and is never
         # rendered in the model-facing Available Skills section.
         result["_source_id"] = self.source_id
+        if self.snapshot_id is not None:
+            result["_snapshot_id"] = self.snapshot_id
         return result
 
 
@@ -144,15 +152,31 @@ class _DirectSkillSource:
         self._skill = skill
         self.source_id = f"direct:{skill.name}"
 
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        if snapshot_id not in (None, self.source_id):
+            raise SkillCatalogError(skill_name=self._skill.name)
+        return self.source_id
+
+    def _validate_snapshot(self, snapshot_id: str | None) -> None:
+        if snapshot_id not in (None, self.source_id):
+            raise SkillCatalogError(skill_name=self._skill.name)
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
+        self._validate_snapshot(snapshot_id)
         return [_skill_metadata(self._skill)]
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
+        self._validate_snapshot(snapshot_id)
         if name != self._skill.name:
             raise SkillNotFoundError(skill_name=name)
         return self._skill
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
+        self._validate_snapshot(snapshot_id)
         if name != self._skill.name or path not in self._skill.resources:
             raise SkillNotFoundError(skill_name=name, path=path)
         return self._skill.resources[path]
@@ -285,12 +309,17 @@ class SkillRuntimeAdapter:
     ) -> list[_SkillCatalogEntry]:
         """Discover and validate catalog entries from one configured source."""
         try:
-            metadata_items = await source.list_metadata()
-        except SkillError:
+            snapshot_id = await source.resolve_snapshot()
+            if not isinstance(snapshot_id, str):
+                raise SkillCatalogError()
+            metadata_items = await source.list_metadata(snapshot_id=snapshot_id)
+        except SkillError as exc:
+            logger.warning(f"Skill catalog discovery failed: {exc}")
             raise
         except Exception as exc:  # noqa: BLE001 - redact source failures
             # A partial catalog could omit a duplicate or expose an incomplete
             # capability set, so discovery is intentionally all-or-nothing.
+            logger.error("Skill catalog discovery failed", exc_info=True)
             raise SkillAccessError() from exc
 
         entries: list[_SkillCatalogEntry] = []
@@ -300,7 +329,13 @@ class SkillRuntimeAdapter:
                 if metadata.name in names:
                     raise SkillCatalogError(skill_name=metadata.name)
                 names.add(metadata.name)
-                entries.append(_SkillCatalogEntry(metadata, source_id))
+                source_has_snapshot = any(
+                    entry.source_id == source_id for entry in entries
+                )
+                entry_snapshot_id = None if source_has_snapshot else snapshot_id
+                entries.append(
+                    _SkillCatalogEntry(metadata, source_id, entry_snapshot_id)
+                )
         except SkillError:
             raise
         except Exception as exc:  # noqa: BLE001 - safe public category
@@ -358,9 +393,15 @@ class SkillRuntimeAdapter:
         """Load and validate one skill from its catalog-selected source."""
         entry = self._catalog_entry(name, catalog)
         source = self._source_for(entry)
-        raw_skill = await self._call_source(
-            lambda: source.load_skill(name), skill_name=name
+        snapshot_id = await self._call_source(
+            lambda: self._snapshot_id_for_entry(source, entry, catalog),
+            skill_name=name,
         )
+
+        async def operation() -> Any:
+            return await source.load_skill(name, snapshot_id=snapshot_id)
+
+        raw_skill = await self._call_source(operation, skill_name=name)
         skill = self._validate_source_model(raw_skill, Skill, skill_name=name)
         if skill.name != name:
             raise SkillMalformedError(skill_name=name)
@@ -453,8 +494,17 @@ class SkillRuntimeAdapter:
         """Read, validate, decode, and size one resource."""
         entry = self._catalog_entry(name, catalog)
         source = self._source_for(entry)
+        snapshot_id = await self._call_source(
+            lambda: self._snapshot_id_for_entry(source, entry, catalog),
+            skill_name=name,
+            path=path,
+        )
+
+        async def operation() -> Any:
+            return await source.read_resource(name, path, snapshot_id=snapshot_id)
+
         raw_resource = await self._call_source(
-            lambda: source.read_resource(name, path),
+            operation,
             skill_name=name,
             path=path,
         )
@@ -476,9 +526,11 @@ class SkillRuntimeAdapter:
         """Run source I/O and map source failures to safe public errors."""
         try:
             return await operation()
-        except SkillError:
+        except SkillError as exc:
+            logger.warning(f"Skill source operation failed: {exc}")
             raise
         except Exception as exc:  # noqa: BLE001 - redact source failures
+            logger.error("Skill source operation failed", exc_info=True)
             raise SkillAccessError(skill_name=skill_name, path=path) from exc
 
     @staticmethod
@@ -509,6 +561,32 @@ class SkillRuntimeAdapter:
                 return entry
         raise SkillNotFoundError(skill_name=name)
 
+    async def _snapshot_id_for_entry(
+        self,
+        source: SkillSource,
+        entry: Mapping[str, Any],
+        catalog: Sequence[Mapping[str, Any]],
+    ) -> str:
+        """Resolve the source snapshot persisted with the catalog."""
+        source_id = entry.get("_source_id")
+        if not isinstance(source_id, str):
+            raise SkillCatalogError(skill_name=str(entry.get("name", "unknown")))
+
+        snapshot_id = entry.get("_snapshot_id")
+        if snapshot_id is not None and not isinstance(snapshot_id, str):
+            raise SkillCatalogError(skill_name=str(entry.get("name", "unknown")))
+        if snapshot_id is None:
+            for candidate in catalog:
+                if candidate.get("_source_id") != source_id:
+                    continue
+                candidate_snapshot = candidate.get("_snapshot_id")
+                if isinstance(candidate_snapshot, str):
+                    snapshot_id = candidate_snapshot
+                    break
+        if snapshot_id is None and not isinstance(source, _DirectSkillSource):
+            raise SkillCatalogError(skill_name=str(entry.get("name", "unknown")))
+        return await source.resolve_snapshot(snapshot_id=snapshot_id)
+
     def _source_for(self, entry: Mapping[str, Any]) -> SkillSource:
         """Resolve the configured skill source from stable catalog provenance."""
         source_id = entry.get("_source_id")
@@ -524,7 +602,13 @@ class SkillRuntimeAdapter:
     @staticmethod
     def _to_text_result(name: str, resource: SkillResource) -> ReadSkillResourceResult:
         media_type = resource.media_type.split(";", 1)[0].strip().lower()
-        if not (media_type.startswith("text/") or media_type in _TEXT_MEDIA_TYPES):
+        if media_type.startswith("text/") or media_type in _TEXT_MEDIA_TYPES:
+            allowed = True
+        elif media_type == "application/octet-stream":
+            allowed = True
+        else:
+            allowed = False
+        if not allowed:
             raise SkillUnsupportedMediaTypeError(skill_name=name, path=resource.path)
         if isinstance(resource.content, bytes):
             try:
@@ -533,6 +617,10 @@ class SkillRuntimeAdapter:
                 raise SkillUnsupportedMediaTypeError(
                     skill_name=name, path=resource.path
                 ) from exc
+            if "\x00" in content:
+                raise SkillUnsupportedMediaTypeError(
+                    skill_name=name, path=resource.path
+                )
         else:
             content = resource.content
         return ReadSkillResourceResult(
@@ -568,32 +656,28 @@ class SkillRuntimeAdapter:
         run_cache.history_rehydrated = True
 
     @staticmethod
-    def _message_name(message: Any) -> Any:
+    def _message_field(message: Any, field: str) -> Any:
         return (
-            message.get("name")
+            message.get(field)
             if isinstance(message, dict)
-            else getattr(message, "name", None)
+            else getattr(message, field, None)
         )
+
+    @staticmethod
+    def _message_name(message: Any) -> Any:
+        return SkillRuntimeAdapter._message_field(message, "name")
 
     @staticmethod
     def _restore_history_message(run_cache: _RunCache, message: Any) -> None:
         """Restore one valid skill tool result from conversation history."""
-        name = (
-            message.get("name")
-            if isinstance(message, dict)
-            else getattr(message, "name", None)
-        )
+        name = SkillRuntimeAdapter._message_field(message, "name")
         # Ignore unrelated tool messages; only skill results can rebuild this cache.
         if name not in {
             LOAD_SKILL_TOOL_NAME,
             READ_SKILL_RESOURCE_TOOL_NAME,
         }:
             return
-        content = (
-            message.get("content")
-            if isinstance(message, dict)
-            else getattr(message, "content", None)
-        )
+        content = SkillRuntimeAdapter._message_field(message, "content")
         # Only serialized structured results are eligible for history hydration.
         if not isinstance(content, str):
             return

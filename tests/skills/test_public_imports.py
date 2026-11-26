@@ -13,17 +13,29 @@
 
 from typing import Sequence
 
-from dapr_agents.skills import Skill, SkillMetadata, SkillResource, SkillSource
+from dapr_agents.skills import (
+    Skill,
+    SkillMetadata,
+    SkillResource,
+    SkillSource,
+)
 
 
 class FakeSkillSource:
-    async def list_metadata(self) -> Sequence[SkillMetadata]:
+    async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
+        return "fake"
+
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
         return []
 
-    async def load_skill(self, name: str) -> Skill:
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise AssertionError(name)
 
-    async def read_resource(self, name: str, path: str) -> SkillResource:
+    async def read_resource(
+        self, name: str, path: str, *, snapshot_id: str | None = None
+    ) -> SkillResource:
         raise AssertionError((name, path))
 
 
