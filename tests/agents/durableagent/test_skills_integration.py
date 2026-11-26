@@ -11,8 +11,9 @@
 # limitations under the License.
 #
 
+import json
 import os
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from dapr.ext.workflow import WorkflowActivityContext
@@ -87,6 +88,128 @@ def test_agent_metadata_contains_static_skill_tool_definitions_only() -> None:
     assert "Keep this content out of registry metadata." not in serialized
     assert "private resource" not in serialized
     assert "_skill_runtime" not in serialized
+
+
+def test_parallel_skill_tools_activate_before_resource_read() -> None:
+    """Same-turn resource reads wait for matching skill activation."""
+    agent = _agent()
+    ctx = MagicMock()
+    ctx.instance_id = "workflow-1"
+    ctx.is_patched.return_value = True
+    ctx.current_utc_datetime.isoformat.return_value = "2026-01-01T00:00:00+00:00"
+    ctx.call_activity.side_effect = lambda *args, **kwargs: MagicMock(name=args[0])
+    ctx.call_child_workflow.return_value = MagicMock()
+
+    skill_name = "incident-investigation"
+    # The dependent read deliberately precedes activation in model output.
+    tool_calls = [
+        {
+            "id": "read",
+            "function": {
+                "name": "read_skill_resource",
+                "arguments": json.dumps({"name": skill_name, "path": "reference.md"}),
+            },
+        },
+        {
+            "id": "load",
+            "function": {
+                "name": "load_skill",
+                "arguments": json.dumps({"name": skill_name}),
+            },
+        },
+    ]
+    load_result = {
+        "role": "tool",
+        "name": "load_skill",
+        "tool_call_id": "load",
+        "content": "loaded",
+    }
+    read_result = {
+        "role": "tool",
+        "name": "read_skill_resource",
+        "tool_call_id": "read",
+        "content": "read",
+    }
+
+    workflow = agent.agent_workflow(ctx, {"task": "use skills"})
+    next(workflow)
+    workflow.send(None)
+    workflow.send(
+        [
+            {
+                "name": skill_name,
+                "description": "Investigate incidents.",
+                "_source_id": f"direct:{skill_name}",
+            }
+        ]
+    )
+
+    with patch("dapr.ext.workflow.when_all", side_effect=["load-phase", "read-phase"]):
+        workflow.send({"tool_calls": tool_calls})
+
+        run_tool_name = agent._activity_name(agent.run_tool)
+        run_tool_calls = [
+            call
+            for call in ctx.call_activity.call_args_list
+            if call.args[0] == run_tool_name
+        ]
+        assert [call.kwargs["input"]["tool_call"]["id"] for call in run_tool_calls] == [
+            "load"
+        ]
+
+        workflow.send([load_result])
+        run_tool_calls = [
+            call
+            for call in ctx.call_activity.call_args_list
+            if call.args[0] == run_tool_name
+        ]
+        assert [call.kwargs["input"]["tool_call"]["id"] for call in run_tool_calls] == [
+            "load",
+            "read",
+        ]
+
+        workflow.send([read_result])
+
+        save_tool_results_name = agent._activity_name(agent.save_tool_results)
+        save_calls = [
+            call
+            for call in ctx.call_activity.call_args_list
+            if call.args[0] == save_tool_results_name
+        ]
+        assert [
+            result["tool_call_id"]
+            for result in save_calls[-1].kwargs["input"]["tool_results"]
+        ] == ["read", "load"]
+
+    workflow.close()
+
+
+def test_skill_runtime_plans_activation_before_dependent_reads() -> None:
+    """The planner detects dependencies regardless of tool-call order."""
+    agent = _agent()
+    assert agent._skill_runtime is not None
+
+    plan = agent._skill_runtime._skill_dispatch_plan(
+        [
+            {
+                "function": {
+                    "name": "read_skill_resource",
+                    "arguments": json.dumps(
+                        {"name": "incident-investigation", "path": "reference.md"}
+                    ),
+                }
+            },
+            {
+                "function": {
+                    "name": "load_skill",
+                    "arguments": json.dumps({"name": "incident-investigation"}),
+                }
+            },
+        ]
+    )
+
+    assert plan.activation_indexes == frozenset({1})
+    assert plan.deferred_resource_indexes == frozenset({0})
 
 
 def test_catalog_is_not_injected_without_a_run_catalog() -> None:

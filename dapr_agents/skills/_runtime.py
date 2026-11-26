@@ -53,6 +53,7 @@ from dapr_agents.skills.source import SkillSource
 # cached value. The leading underscore keeps these implementation details
 # private to the skills package.
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+_ValueT = TypeVar("_ValueT")
 
 logger = logging.getLogger(__name__)
 
@@ -426,31 +427,48 @@ class SkillRuntimeAdapter:
             raise SkillUnsafePathError(skill_name=name, path=path) from exc
 
         run_cache = self._run_cache(instance_id)
-        with run_cache.lock:
-            # Rehydrate before checking the cache so worker restart can reuse
-            # previously validated resource results and budget usage.
-            self._restore_history(run_cache, history)
-            cached = run_cache.resources.get((name, path))
-            if cached is not None:
-                return cached
-            # Resource reads require activation in this workflow execution;
-            # source access alone must not bypass the load_skill boundary.
-            loaded = run_cache.loaded.get(name)
-            if loaded is None:
-                raise SkillAccessError(skill_name=name, path=path)
-            if loaded.available_resources and path not in loaded.available_resources:
-                raise SkillNotFoundError(skill_name=name, path=path)
+        while True:
+            load_pending: Future[LoadSkillResult] | None = None
+            with run_cache.lock:
+                # Rehydrate before checking the cache so worker restart can reuse
+                # previously validated resource results and budget usage.
+                self._restore_history(run_cache, history)
+                cached = run_cache.resources.get((name, path))
+                if cached is not None:
+                    return cached
+                # Resource reads require activation in this workflow execution;
+                # source access alone must not bypass the load_skill boundary.
+                loaded = run_cache.loaded.get(name)
+                if loaded is None:
+                    # A parallel load for this skill may still establish the
+                    # activation boundary. Wait for it instead of racing the
+                    # source read, then re-check state under the lock.
+                    load_pending = run_cache.load_inflight.get(name)
+                    if load_pending is None:
+                        raise SkillAccessError(skill_name=name, path=path)
+                else:
+                    if (
+                        loaded.available_resources
+                        and path not in loaded.available_resources
+                    ):
+                        raise SkillNotFoundError(skill_name=name, path=path)
 
-            # Register one in-flight read under the lock; later callers wait
-            # for its result instead of starting another source read.
-            pending = run_cache.resource_inflight.get((name, path))
-            if pending is None:
-                pending = Future()
-                run_cache.resource_inflight[(name, path)] = pending
-                owner = True
-            else:
-                owner = False
+                    # Register one in-flight read under the lock; later callers wait
+                    # for its result instead of starting another source read.
+                    pending = run_cache.resource_inflight.get((name, path))
+                    if pending is None:
+                        pending = Future()
+                        run_cache.resource_inflight[(name, path)] = pending
+                        owner = True
+                    else:
+                        owner = False
 
+            if load_pending is not None:
+                await asyncio.wrap_future(load_pending)
+                continue
+            break
+
+        assert pending is not None
         if not owner:
             # Wait for the owner instead of issuing a duplicate source read.
             return await asyncio.wrap_future(pending)
@@ -518,11 +536,11 @@ class SkillRuntimeAdapter:
 
     @staticmethod
     async def _call_source(
-        operation: Callable[[], Awaitable[_ModelT]],
+        operation: Callable[[], Awaitable[_ValueT]],
         *,
         skill_name: str,
         path: str | None = None,
-    ) -> _ModelT:
+    ) -> _ValueT:
         """Run source I/O and map source failures to safe public errors."""
         try:
             return await operation()

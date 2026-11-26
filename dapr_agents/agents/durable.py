@@ -160,6 +160,8 @@ logger = get_context_aware_logger(__name__)
 # Stable workflow patch marker. Do not rename or remove it while
 # skill-enabled workflows may still be in flight or replayable.
 _SKILL_WORKFLOW_PATCH = "dapr-agents-skills-v1"
+# Preserve parallel dispatch while deferring dependent resource reads until activation completes.
+_SKILL_TOOL_DEPENDENCY_PATCH = "dapr-agents-skills-tool-dependencies-v1"
 
 
 def _get_framework_from_registry(
@@ -712,6 +714,11 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 input={"instance_id": ctx.instance_id},
                 retry_policy=self._retry_policy,
             )
+        skill_tool_dependency_patch = (
+            self._skill_runtime is not None
+            and skill_catalog is not None
+            and ctx.is_patched(_SKILL_TOOL_DEPENDENCY_PATCH)
+        )
 
         final_message: Dict[str, Any] = {}
         turn = 0
@@ -854,6 +861,18 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
                         activity_meta: List[Dict[str, Any]] = []
+                        activity_task_meta: List[Dict[str, Any]] = []
+                        skill_load_tasks: List[Any] = []
+                        skill_load_meta: List[Dict[str, Any]] = []
+                        skill_resource_dispatches: List[
+                            Tuple[Dict[str, Any], Dict[str, Any]]
+                        ] = []
+                        skill_dispatch_plan = (
+                            self._skill_runtime._skill_dispatch_plan(tool_calls)
+                            if skill_tool_dependency_patch
+                            and self._skill_runtime is not None
+                            else None
+                        )
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
                         sequential_dispatches: List[
@@ -864,7 +883,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 Optional[Dict[str, Any]],
                             ]
                         ] = []
-
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
 
@@ -1100,15 +1118,34 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         ctx.current_utc_datetime.isoformat()
                                     )
                                     activity_input["time"] = meta["dispatch_time"]
-                                    activity_tasks.append(
-                                        ctx.call_activity(
+                                    is_skill_activation = (
+                                        skill_dispatch_plan is not None
+                                        and idx
+                                        in skill_dispatch_plan.activation_indexes
+                                    )
+                                    is_deferred_resource = (
+                                        skill_dispatch_plan is not None
+                                        and idx
+                                        in skill_dispatch_plan.deferred_resource_indexes
+                                    )
+                                    if is_deferred_resource:
+                                        # Defer creating the activity task until
+                                        # activation has completed at the barrier.
+                                        skill_resource_dispatches.append(
+                                            (meta, activity_input)
+                                        )
+                                    else:
+                                        task = ctx.call_activity(
                                             self._activity_name(self.run_tool),
                                             input=activity_input,
                                             retry_policy=self._retry_policy,
                                         )
-                                    )
-
-                        all_tasks = workflow_tasks + activity_tasks
+                                        if is_skill_activation:
+                                            skill_load_tasks.append(task)
+                                            skill_load_meta.append(meta)
+                                        else:
+                                            activity_tasks.append(task)
+                                            activity_task_meta.append(meta)
 
                         # Emit TURN_PAUSED before dispatching agent-as-tool
                         # calls so UIs know this agent is waiting on child
@@ -1179,10 +1216,68 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         name=tc["function"]["name"],
                                         tool_call_id=tc["id"],
                                     ).model_dump()
-                        elif not all_tasks:
+                        elif skill_tool_dependency_patch:
+                            # The initial dispatch contains independent work;
+                            # dependent resource reads wait for activation to complete.
+                            initial_activity_tasks = activity_tasks + skill_load_tasks
+                            initial_activity_meta = activity_task_meta + skill_load_meta
+                            initial_tasks = workflow_tasks + initial_activity_tasks
+                            if initial_tasks:
+                                initial_results = yield wf.when_all(initial_tasks)
+                            else:
+                                initial_results = []
+
+                            for meta, res in zip(
+                                workflow_meta,
+                                initial_results[: len(workflow_tasks)],
+                            ):
+                                tc = meta["tool_call"]
+                                fn_name = tc["function"]["name"]
+                                serialized = serialize_tool_result(res)
+                                tool_msg = ToolMessage(
+                                    content=serialized,
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[meta["order"]] = tool_msg.model_dump()
+
+                            for meta, res in zip(
+                                initial_activity_meta,
+                                initial_results[len(workflow_tasks) :],
+                            ):
+                                ordered[meta["order"]] = res
+
+                            if skill_resource_dispatches:
+                                skill_resource_tasks: List[Any] = []
+                                skill_resource_meta: List[Dict[str, Any]] = []
+                                for meta, activity_input in skill_resource_dispatches:
+                                    dispatch_time = ctx.current_utc_datetime.isoformat()
+                                    meta["dispatch_time"] = dispatch_time
+                                    activity_input["time"] = dispatch_time
+                                    skill_resource_tasks.append(
+                                        ctx.call_activity(
+                                            self._activity_name(self.run_tool),
+                                            input=activity_input,
+                                            retry_policy=self._retry_policy,
+                                        )
+                                    )
+                                    skill_resource_meta.append(meta)
+                                resource_results = yield wf.when_all(
+                                    skill_resource_tasks
+                                )
+                                for meta, res in zip(
+                                    skill_resource_meta, resource_results
+                                ):
+                                    ordered[meta["order"]] = res
+                            # Phase results were mapped directly above.
                             results = []
                         else:
-                            results = yield wf.when_all(all_tasks)
+                            all_tasks = workflow_tasks + activity_tasks
+                            if all_tasks:
+                                results = yield wf.when_all(all_tasks)
+                            else:
+                                results = []
 
                         if stream_ctx and child_agent_dispatches:
                             yield ctx.call_activity(
@@ -1223,7 +1318,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             ordered[meta["order"]] = tool_msg.model_dump()
 
                         for meta, res in zip(
-                            activity_meta, results[len(workflow_tasks) :]
+                            activity_task_meta, results[len(workflow_tasks) :]
                         ):
                             ordered[meta["order"]] = res
 

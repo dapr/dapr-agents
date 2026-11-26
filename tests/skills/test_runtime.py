@@ -786,6 +786,31 @@ async def test_concurrent_duplicate_loads_are_single_flight(skill: Skill) -> Non
 
 
 @pytest.mark.asyncio
+async def test_resource_read_waits_for_inflight_load(skill: Skill) -> None:
+    """A parallel resource read waits for activation to complete."""
+    source = BlockingSource(skill)
+    adapter = SkillRuntimeAdapter([source])
+    catalog = await adapter.discover_catalog()
+
+    load_task = asyncio.create_task(adapter.load("run-1", skill.name, catalog))
+    await source.started.wait()
+    read_task = asyncio.create_task(
+        adapter.read_resource("run-1", skill.name, "references/checklist.md", catalog)
+    )
+    await asyncio.sleep(0)
+
+    assert not read_task.done()
+    source.release.set()
+
+    loaded, resource = await asyncio.gather(load_task, read_task)
+
+    assert loaded.name == skill.name
+    assert resource.content == "# Checklist"
+    assert source.load_calls == 1
+    assert source.read_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_concurrent_duplicate_resource_reads_are_single_flight(
     skill: Skill,
 ) -> None:
