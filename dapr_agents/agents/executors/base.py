@@ -50,8 +50,9 @@ class AgentExecutorBase(ABC):
     ``supports_tool_approval = True``; see ``run`` and the module docs of
     ``dapr_agents.agents.executors.event`` for the ``paused`` contract.
 
-    Executors that can use the hosting agent's profile, tools, hooks or
-    session store override ``bind``; the default ignores the binding.
+    Executors that can use the hosting agent's profile, tools, hooks,
+    session store or the run's instance id and round override ``bind``;
+    the default ignores the binding.
     """
 
     supports_tool_approval: ClassVar[bool] = False
@@ -69,10 +70,12 @@ class AgentExecutorBase(ABC):
 
         ``DurableAgent`` calls this before every run with the agent's
         current system prompt, tools, ``before_tool_call`` hooks and
-        durable session store, and drives the returned executor. The
-        default returns ``self`` unchanged. Overrides must not mutate
-        ``self`` (return a new instance instead) and should let settings
-        made explicitly on the executor win over the binding.
+        durable session store, plus the run's workflow instance id and
+        round, and drives the returned executor. The default returns
+        ``self`` unchanged. Overrides must not mutate ``self`` (return a
+        new instance instead) and should let settings made explicitly on
+        the executor win over the binding. The run's instance id and round
+        always come from the binding.
 
         Args:
             binding: The hosting agent's configuration for this run.

@@ -20,8 +20,8 @@ and the ``run_executor`` activity:
 * Before every run the executor is bound (``AgentExecutorBase.bind``) to the
   agent's system prompt, ``max_iterations``, tools (including registry
   agents-as-tools and Dapr ``MCPServer`` tools, bridged so they can run in
-  the activity), ``before_tool_call`` hooks and a ``DaprSessionStore`` on
-  the agent's state store.
+  the activity), ``before_tool_call`` hooks, a ``DaprSessionStore`` on the
+  agent's state store, and the run's workflow instance id and round.
 * A run that pauses on a tool call awaiting approval returns a
   ``PausedExecutorRun``. The workflow body then runs the normal approval
   flow (``_await_approval``: publish, wait for the external event or the
@@ -374,6 +374,8 @@ class DurableExecutorMixin:
             tools=tuple(tools),
             before_tool_call=tuple(hooks),
             session_store=self._executor_session_store(),
+            instance_id=instance_id,
+            round=round_,
         )
         return self.executor.bind(binding)
 

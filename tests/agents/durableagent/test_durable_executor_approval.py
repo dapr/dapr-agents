@@ -432,6 +432,19 @@ class TestBinding:
         # One store per agent, reused across runs.
         assert second.session_store is first.session_store
 
+    def test_binding_carries_the_run_instance_and_round(self):
+        executor = _ApprovalExecutor(
+            [AgentEvent(type="complete", content={"role": "assistant", "content": "x"})]
+        )
+        agent = _make_agent(executor)
+
+        _consume(agent, {"task": "hi", "instance_id": "wf-7"})
+        _consume(agent, {"task": None, "instance_id": "wf-8", "round": 2})
+
+        first, second = executor.bindings
+        assert (first.instance_id, first.round) == ("wf-7", 0)
+        assert (second.instance_id, second.round) == ("wf-8", 2)
+
     def test_no_session_store_without_state_store(self):
         agent = _make_agent(_ApprovalExecutor([]))
         with patch.object(type(agent), "state_store", new=None):

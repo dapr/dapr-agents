@@ -16,9 +16,9 @@ What a hosting agent offers an ``AgentExecutorBase``.
 
 ``DurableAgent`` builds an ``ExecutorBinding`` for every executor run and
 passes it to ``AgentExecutorBase.bind``. Executors use whatever parts they
-support (the agent's system prompt, tools, hooks, a durable session store)
-and ignore the rest; the default ``bind`` ignores all of it, so existing
-executors keep working unchanged.
+support (the agent's system prompt, tools, hooks, a durable session store,
+the run's workflow instance and round) and ignore the rest; the default
+``bind`` ignores all of it, so existing executors keep working unchanged.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ class ExecutorBinding:
 
     Values set explicitly on the executor's own configuration should win
     over the binding; the binding fills in what the executor left unset.
+    The run's ``instance_id`` and ``round`` always come from the binding.
 
     Attributes:
         agent_name: Name of the hosting agent.
@@ -52,6 +53,11 @@ class ExecutorBinding:
             ``paused`` run; see ``AgentExecutorBase.supports_tool_approval``.
         session_store: A durable session store offered by the host (a
             ``DaprSessionStore`` on the agent's state store), or ``None``.
+        instance_id: Workflow instance the run was scheduled from, or
+            ``None`` when the host runs no workflow.
+        round: Run round within the instance (0 for the first run, then one
+            per approval resume). Neither field changes when the run is
+            retried.
     """
 
     agent_name: str
@@ -60,3 +66,5 @@ class ExecutorBinding:
     tools: Tuple[AgentTool, ...] = ()
     before_tool_call: Tuple[BeforeToolHook, ...] = ()
     session_store: Optional[Any] = None
+    instance_id: Optional[str] = None
+    round: int = 0
