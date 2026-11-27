@@ -111,3 +111,5 @@ class TestBaseDefaults:
         assert binding.before_tool_call == ()
         assert binding.system_prompt is None
         assert binding.session_store is None
+        assert binding.instance_id is None
+        assert binding.round == 0

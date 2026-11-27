@@ -355,9 +355,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 that drives the executor's async event stream,
                 and persists state at session granularity instead of message granularity.
                 Each run is bound (``AgentExecutorBase.bind``) to this agent's system
-                prompt, ``max_iterations``, tools, ``hooks.before_tool_call`` and a
-                durable session store on ``state``; runs that pause on a tool call
-                go through the same approval flow as ``RequireApproval`` hooks.
+                prompt, ``max_iterations``, tools, ``hooks.before_tool_call``, a
+                durable session store on ``state``, and the run's workflow instance
+                id and round; runs that pause on a tool call go through the same
+                approval flow as ``RequireApproval`` hooks.
             tools: Optional tool callables or ``AgentTool`` instances.
                 All agents sharing the same registry are auto-discovered as
                 tools at workflow start via ``load_tools``.
