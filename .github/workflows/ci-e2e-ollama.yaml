@@ -110,6 +110,9 @@ jobs:
         OPENAI_BASE_URL: http://localhost:11434/v1
         OLLAMA_NUM_PARALLEL: "1"
       run: |
+        # The durable agent skills quickstart requires reliable multi-step skill/tool use.
+        # qwen3:0.6b is a lightweight CI model and is not reliable enough for this test;
+        # run it separately with a stronger model.
         uv run pytest -m "integration" -v \
           --timeout=300 \
           --reruns 2 \
