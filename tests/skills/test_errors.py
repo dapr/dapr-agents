@@ -26,25 +26,26 @@ from dapr_agents.skills import (
 
 
 @pytest.mark.parametrize(
-    "error_type",
+    ("error_type", "category"),
     [
-        SkillNotFoundError,
-        SkillMalformedError,
-        SkillUnsafePathError,
-        SkillAccessError,
-        SkillUnsupportedMediaTypeError,
-        SkillSizeLimitError,
-        SkillCatalogError,
+        (SkillNotFoundError, "not found"),
+        (SkillMalformedError, "malformed"),
+        (SkillUnsafePathError, "unsafe path"),
+        (SkillAccessError, "access"),
+        (SkillUnsupportedMediaTypeError, "unsupported media type"),
+        (SkillSizeLimitError, "size limit"),
+        (SkillCatalogError, "catalog"),
     ],
 )
 def test_public_skill_errors_have_stable_safe_hierarchy(
-    error_type: type[SkillError],
+    error_type: type[SkillError], category: str
 ) -> None:
     error = error_type(
         skill_name="incident-investigation", path="references/checklist.md"
     )
 
     assert isinstance(error, SkillError)
+    assert error.category == category
     assert "incident-investigation" in str(error)
     assert "references/checklist.md" in str(error)
     assert "secret-token" not in str(error)
