@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   bump-python-sdk:
+    if: github.repository == 'dapr/dapr-agents'
     name: Bump dapr python-sdk
     runs-on: ubuntu-latest
     steps:
@@ -85,6 +86,7 @@ jobs:
             Release notes: https://github.com/dapr/python-sdk/releases/tag/v${{ steps.check.outputs.latest }}
 
   bump-durabletask:
+    if: github.repository == 'dapr/dapr-agents'
     name: Bump durabletask-dapr
     runs-on: ubuntu-latest
     steps:
