@@ -11,6 +11,7 @@
 # limitations under the License.
 #
 
+import errno
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from dapr_agents.skills import (
     SkillMalformedError,
     SkillNotFoundError,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsafePathError,
 )
 
@@ -66,6 +68,47 @@ def test_source_rejects_invalid_configuration(tmp_path: Path) -> None:
         )
     with pytest.raises(ValueError):
         FileSystemSkillSource([tmp_path], max_resource_bytes=MAX_RESOURCE_BYTES + 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_number",
+    [
+        errno.EAGAIN,
+        errno.EINTR,
+        errno.EIO,
+        getattr(errno, "ESTALE", errno.EIO),
+        errno.ETIMEDOUT,
+    ],
+)
+async def test_transient_filesystem_errors_are_retryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_number: int
+) -> None:
+    source = FileSystemSkillSource([tmp_path])
+
+    def fail_discovery() -> str:
+        raise OSError(error_number, "temporary filesystem failure")
+
+    monkeypatch.setattr(source, "_discover_sync", fail_discovery)
+
+    with pytest.raises(SkillTransientAccessError):
+        await source.resolve_snapshot()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_number", [errno.ENOENT, errno.EACCES, errno.EPERM])
+async def test_permanent_filesystem_errors_are_not_retryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_number: int
+) -> None:
+    source = FileSystemSkillSource([tmp_path])
+
+    def fail_discovery() -> str:
+        raise OSError(error_number, "permanent filesystem failure")
+
+    monkeypatch.setattr(source, "_discover_sync", fail_discovery)
+
+    with pytest.raises(SkillAccessError):
+        await source.resolve_snapshot()
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import json
 import logging
@@ -34,6 +35,7 @@ from dapr_agents.skills.errors import (
     SkillMalformedError,
     SkillNotFoundError,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsafePathError,
 )
 from dapr_agents.skills.models import (
@@ -85,6 +87,46 @@ _SNAPSHOT_RESOURCES_KEY = "resources"
 _STANDARD_FRONTMATTER_FIELDS = frozenset(
     {"name", "description", "license", "compatibility", "metadata"}
 )
+# Keep this set explicit: missing files, permissions, and semantic validation
+# errors must remain terminal rather than becoming activity retries.
+_TRANSIENT_ERRNOS = frozenset(
+    error_number
+    for error_number in (
+        errno.EAGAIN,
+        getattr(errno, "EWOULDBLOCK", None),
+        errno.EINTR,
+        errno.EIO,
+        getattr(errno, "ESTALE", None),
+        getattr(errno, "ETIMEDOUT", None),
+        getattr(errno, "ENETDOWN", None),
+        getattr(errno, "ENETUNREACH", None),
+        getattr(errno, "EHOSTDOWN", None),
+        getattr(errno, "EHOSTUNREACH", None),
+        getattr(errno, "ECONNRESET", None),
+        getattr(errno, "ECONNABORTED", None),
+        getattr(errno, "ENETRESET", None),
+        getattr(errno, "ENOTCONN", None),
+        getattr(errno, "EMFILE", None),
+        getattr(errno, "ENFILE", None),
+        getattr(errno, "ENOMEM", None),
+    )
+    if error_number is not None
+)
+
+
+def _filesystem_access_error(
+    error: OSError,
+    *,
+    skill_name: str | None = None,
+    path: str | None = None,
+) -> SkillAccessError:
+    """Classify a filesystem error without treating every OSError as transient."""
+    error_type: type[SkillAccessError] = (
+        SkillTransientAccessError
+        if error.errno in _TRANSIENT_ERRNOS
+        else SkillAccessError
+    )
+    return error_type(skill_name=skill_name, path=path)
 
 
 @dataclass(frozen=True)
@@ -205,7 +247,7 @@ class FileSystemSkillSource:
             raise
         except OSError as exc:
             logger.error("Filesystem snapshot resolution failed", exc_info=True)
-            raise SkillAccessError() from exc
+            raise _filesystem_access_error(exc) from exc
         except Exception as exc:  # noqa: BLE001 - redact parser details
             logger.error("Filesystem snapshot resolution failed", exc_info=True)
             # Discovery failures are source errors; persisted-ID failures mean
@@ -226,7 +268,7 @@ class FileSystemSkillSource:
             raise
         except OSError as exc:
             logger.error("Filesystem skill discovery failed", exc_info=True)
-            raise SkillAccessError() from exc
+            raise _filesystem_access_error(exc) from exc
         except Exception as exc:  # noqa: BLE001 - redact parser details
             logger.error("Filesystem skill discovery failed", exc_info=True)
             raise SkillMalformedError() from exc
@@ -241,7 +283,7 @@ class FileSystemSkillSource:
             raise
         except OSError as exc:
             logger.error("Filesystem skill activation failed: %s", exc, exc_info=True)
-            raise SkillAccessError(skill_name=name) from exc
+            raise _filesystem_access_error(exc, skill_name=name) from exc
         except ValidationError as exc:
             logger.error(
                 "Filesystem skill activation returned invalid data", exc_info=True
@@ -268,7 +310,7 @@ class FileSystemSkillSource:
             logger.error(
                 "Filesystem skill resource read failed: %s", exc, exc_info=True
             )
-            raise SkillAccessError(skill_name=name, path=path) from exc
+            raise _filesystem_access_error(exc, skill_name=name, path=path) from exc
         except ValidationError as exc:
             logger.error(
                 "Filesystem skill resource returned invalid data", exc_info=True
@@ -369,7 +411,7 @@ class FileSystemSkillSource:
         except SkillError:
             raise
         except OSError as exc:
-            raise SkillAccessError(path=str(directory)) from exc
+            raise _filesystem_access_error(exc, path=str(directory)) from exc
         if len(entries) > _MAX_DIRECTORY_ENTRIES:
             raise SkillCatalogError(path=str(directory))
 
@@ -379,7 +421,7 @@ class FileSystemSkillSource:
             try:
                 resolved = entry.resolve(strict=True)
             except OSError as exc:
-                raise SkillAccessError(path=str(entry)) from exc
+                raise _filesystem_access_error(exc, path=str(entry)) from exc
             if not resolved.is_relative_to(root):
                 raise SkillUnsafePathError(path=str(entry))
 
@@ -419,8 +461,8 @@ class FileSystemSkillSource:
         except SkillError:
             raise
         except OSError as exc:
-            raise SkillAccessError(
-                skill_name=skill_name, path=_SKILL_FILE_NAME
+            raise _filesystem_access_error(
+                exc, skill_name=skill_name, path=_SKILL_FILE_NAME
             ) from exc
         finally:
             if file_descriptor != _INVALID_FILE_DESCRIPTOR:
@@ -643,7 +685,9 @@ class FileSystemSkillSource:
         except SkillError:
             raise
         except (FileNotFoundError, OSError) as exc:
-            raise SkillAccessError(skill_name=record.metadata.name, path=path) from exc
+            raise _filesystem_access_error(
+                exc, skill_name=record.metadata.name, path=path
+            ) from exc
 
     def _open_snapshot_file(
         self,
