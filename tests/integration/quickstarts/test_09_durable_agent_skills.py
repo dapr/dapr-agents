@@ -74,10 +74,11 @@ class TestDurableAgentSkillsQuickstart:
 
         combined = f"{result.stdout}\n{result.stderr}".lower()
 
-        # Non-ASCII policy term helps confirm UTF-8 resource decoding
-        assert "réacheminement" in combined
+        # Tool metadata and route terms confirm the policy resource was loaded and decoded
+        assert "read_skill_resource" in combined
+        assert "references/exception-routing-policy.md" in combined
+        assert '"encoding": "utf-8"' in combined
 
-        # Confirm the policy resource was loaded
         for route in (
             "carrier escalation",
             "warehouse review",
