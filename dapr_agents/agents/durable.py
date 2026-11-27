@@ -160,8 +160,6 @@ logger = get_context_aware_logger(__name__)
 # Stable workflow patch marker. Do not rename or remove it while
 # skill-enabled workflows may still be in flight or replayable.
 _SKILL_WORKFLOW_PATCH = "dapr-agents-skills-v1"
-# Preserve parallel dispatch while deferring dependent resource reads until activation completes.
-_SKILL_TOOL_DEPENDENCY_PATCH = "dapr-agents-skills-tool-dependencies-v1"
 
 
 def _get_framework_from_registry(
@@ -704,20 +702,21 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             )
 
         skill_catalog: Optional[List[Dict[str, Any]]] = None
-        # Check skills first so ordinary workflows never evaluate this
-        # skill-specific patch marker. Keep discovery behind the workflow patch
-        # because it adds a durable activity before the first turn; the activity
-        # snapshots the catalog for deterministic replay and redelivery.
+        # Check for a configured skill runtime before evaluating the skills workflow
+        # patch marker, so ordinary workflows never evaluate the skills patch. Keep
+        # discovery behind the patch because it adds a durable activity before the
+        # first turn; the activity snapshots the catalog for deterministic replay
+        # and redelivery.
         if self._skill_runtime is not None and ctx.is_patched(_SKILL_WORKFLOW_PATCH):
             skill_catalog = yield ctx.call_activity(
                 self._activity_name(self.discover_skill_catalog),
                 input={"instance_id": ctx.instance_id},
                 retry_policy=self._retry_policy,
             )
-        skill_tool_dependency_patch = (
-            self._skill_runtime is not None
-            and skill_catalog is not None
-            and ctx.is_patched(_SKILL_TOOL_DEPENDENCY_PATCH)
+        # Keep independent tool calls parallel, but defer resource reads that depend
+        # on skill activation until activation completes.
+        skill_dependency_barrier_enabled = (
+            self._skill_runtime is not None and skill_catalog is not None
         )
 
         final_message: Dict[str, Any] = {}
@@ -869,7 +868,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         ] = []
                         skill_dispatch_plan = (
                             self._skill_runtime._skill_dispatch_plan(tool_calls)
-                            if skill_tool_dependency_patch
+                            if skill_dependency_barrier_enabled
                             and self._skill_runtime is not None
                             else None
                         )
@@ -1216,7 +1215,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         name=tc["function"]["name"],
                                         tool_call_id=tc["id"],
                                     ).model_dump()
-                        elif skill_tool_dependency_patch:
+                        elif skill_dependency_barrier_enabled:
                             # The initial dispatch contains independent work;
                             # dependent resource reads wait for activation to complete.
                             initial_activity_tasks = activity_tasks + skill_load_tasks
@@ -1270,7 +1269,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     skill_resource_meta, resource_results
                                 ):
                                     ordered[meta["order"]] = res
-                            # Phase results were mapped directly above.
+                            # Results were already mapped into `ordered` during each
+                            # dependency phase.
                             results = []
                         else:
                             all_tasks = workflow_tasks + activity_tasks

@@ -245,6 +245,7 @@ def test_agent_workflow_patches_skill_discovery_activity(patched: bool) -> None:
     else:
         assert discovery_name not in activity_names
     workflow.close()
+    ctx.is_patched.assert_called_once_with("dapr-agents-skills-v1")
 
 
 def test_call_llm_without_catalog_filters_skill_tools() -> None:
