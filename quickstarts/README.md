@@ -442,13 +442,13 @@ In a separate terminal, submit a delayed shipment exception:
 ```bash
 curl -i -X POST http://localhost:8001/agent/run \
   -H "Content-Type: application/json" \
-  -d '{"task":"Shipment SHP-042 is delayed in transit and may miss its delivery window. Use the shipment-exceptions skill, read its routing policy, and recommend the applicable route."}'
+  -d '{"task":"Shipment exception alert. Shipment: SHP-017. Alert time: 2026-11-27T16:00:00Z. Last carrier scan: 2026-11-26T04:00:00Z. Current status: In transit. Promised delivery window: 2026-11-27T09:00:00Z–18:00:00Z."}'
 ```
 
 ## Expected Behavior
 
 The durable agent advertises `shipment-exceptions`, activates the skill, and
-reads `references/exception-routing-policy.md` before recommending a route.
+reads `references/exception-routing-policy.md` before recommending a course of action.
 The policy covers carrier escalation, warehouse review, customer notification,
 and manual review without requiring custom application tools or executable
 resources.
@@ -461,7 +461,7 @@ resources.
 2. The durable agent exposes the skill catalog and built-in skill tools through
    its normal workflow path.
 3. The model activates `shipment-exceptions` and lazily loads its UTF-8 policy
-   reference before producing the routing recommendation.
+   reference before producing the recommendation.
 
 ---
 

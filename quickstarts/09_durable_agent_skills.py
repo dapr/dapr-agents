@@ -29,9 +29,9 @@ def main() -> None:
         role="Shipment Exception Specialist",
         goal="Route delayed shipment exceptions using the local shipment policy.",
         instructions=[
-            "For every delayed shipment, activate the shipment-exceptions skill "
-            "and follow its instructions before answering.",
-            "Report the applicable route and briefly summarize the policy evidence.",
+            "For delayed shipment exceptions, use the configured shipment-exceptions "
+            "skill before answering.",
+            "Recommend a course of action with supporting evidence and any missing facts.",
         ],
         llm=DaprChatClient(component_name="llm-provider"),
         execution=AgentExecutionConfig(

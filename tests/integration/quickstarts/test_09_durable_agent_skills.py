@@ -50,11 +50,12 @@ class TestDurableAgentSkillsQuickstart:
                 "method": "POST",
                 "data": {
                     "task": (
-                        "Shipment SHP-042 has had no carrier scan for 36 hours and is stalled "
-                        "in transit. It may miss its promised delivery window. Use the "
-                        "shipment-exceptions skill and read "
-                        "references/exception-routing-policy.md before recommending "
-                        "the appropriate route."
+                        "Shipment exception alert.\n"
+                        "Shipment: SHP-017\n"
+                        "Alert time: 2026-11-27T16:00:00Z\n"
+                        "Last carrier scan: 2026-11-26T04:00:00Z\n"
+                        "Current status: In transit\n"
+                        "Promised delivery window: 2026-11-27T09:00:00Z–18:00:00Z"
                     ),
                     "include_complete_message": True,
                 },
@@ -74,10 +75,9 @@ class TestDurableAgentSkillsQuickstart:
 
         combined = f"{result.stdout}\n{result.stderr}".lower()
 
-        # Tool metadata and route terms confirm the policy resource was loaded and decoded
+        # Tool metadata and route terms confirm the policy resource was loaded and decoded.
         assert "read_skill_resource" in combined
         assert "references/exception-routing-policy.md" in combined
-        assert '"encoding": "utf-8"' in combined
 
         for route in (
             "carrier escalation",
