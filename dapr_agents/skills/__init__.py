@@ -18,6 +18,7 @@ from dapr_agents.skills.errors import (
     SkillMalformedError,
     SkillNotFoundError,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsafePathError,
     SkillUnsupportedMediaTypeError,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "SkillMalformedError",
     "SkillUnsafePathError",
     "SkillAccessError",
+    "SkillTransientAccessError",
     "SkillUnsupportedMediaTypeError",
     "SkillSizeLimitError",
     "SkillCatalogError",

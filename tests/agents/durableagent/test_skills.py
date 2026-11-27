@@ -32,6 +32,7 @@ from dapr_agents.skills import (
     SkillCatalogError,
     SkillMetadata,
     SkillResource,
+    SkillTransientAccessError,
 )
 from dapr_agents.skills._durable import SkillStateStore
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
@@ -485,6 +486,27 @@ def test_skill_resource_result_redelivery_uses_persisted_result(
     assert second == first
     assert json.loads(second["content"])["content"] == "# Checklist"
     assert source.read_calls == 1
+
+
+def test_transient_skill_error_propagates_for_activity_retry(
+    mock_llm: Mock, skill: Skill
+) -> None:
+    """Transient source failures must remain retryable at the activity boundary."""
+    fake_store, _, source, agent = make_durable_skill_agent(mock_llm, skill)
+    catalog = agent.discover_skill_catalog(
+        Mock(spec=WorkflowActivityContext), {"instance_id": "run-1"}
+    )
+    source.load_skill = AsyncMock(
+        side_effect=SkillTransientAccessError(skill_name=skill.name)
+    )
+
+    with pytest.raises(SkillTransientAccessError):
+        agent.run_tool(
+            Mock(spec=WorkflowActivityContext),
+            make_skill_tool_payload(agent, skill, catalog),
+        )
+
+    assert not any(":result:" in key for key in fake_store.data)
 
 
 def test_cached_skill_error_survives_redelivery(mock_llm: Mock, skill: Skill) -> None:

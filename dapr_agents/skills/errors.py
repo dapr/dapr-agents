@@ -53,6 +53,10 @@ class SkillAccessError(SkillError):
     category = "access"
 
 
+class SkillTransientAccessError(SkillAccessError):
+    category = "transient access"
+
+
 class SkillUnsupportedMediaTypeError(SkillError):
     category = "unsupported media type"
 
@@ -71,6 +75,7 @@ __all__ = [
     "SkillMalformedError",
     "SkillUnsafePathError",
     "SkillAccessError",
+    "SkillTransientAccessError",
     "SkillUnsupportedMediaTypeError",
     "SkillSizeLimitError",
     "SkillCatalogError",

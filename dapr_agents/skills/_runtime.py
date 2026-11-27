@@ -34,6 +34,7 @@ from dapr_agents.skills.errors import (
     SkillMalformedError,
     SkillNotFoundError,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsupportedMediaTypeError,
     SkillUnsafePathError,
 )
@@ -317,6 +318,9 @@ class SkillRuntimeAdapter:
         except SkillError as exc:
             logger.warning(f"Skill catalog discovery failed: {exc}")
             raise
+        except (TimeoutError, ConnectionError) as exc:
+            logger.warning("Transient skill catalog discovery failure", exc_info=True)
+            raise SkillTransientAccessError() from exc
         except Exception as exc:  # noqa: BLE001 - redact source failures
             # A partial catalog could omit a duplicate or expose an incomplete
             # capability set, so discovery is intentionally all-or-nothing.
@@ -547,6 +551,9 @@ class SkillRuntimeAdapter:
         except SkillError as exc:
             logger.warning(f"Skill source operation failed: {exc}")
             raise
+        except (TimeoutError, ConnectionError) as exc:
+            logger.warning("Transient skill source failure", exc_info=True)
+            raise SkillTransientAccessError(skill_name=skill_name, path=path) from exc
         except Exception as exc:  # noqa: BLE001 - redact source failures
             logger.error("Skill source operation failed", exc_info=True)
             raise SkillAccessError(skill_name=skill_name, path=path) from exc

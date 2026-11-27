@@ -26,7 +26,11 @@ from dapr_agents.skills._constants import (
     READ_SKILL_RESOURCE_TOOL_NAME,
     SKILL_TOOL_NAMES,
 )
-from dapr_agents.skills.errors import SkillCatalogError, SkillError
+from dapr_agents.skills.errors import (
+    SkillCatalogError,
+    SkillError,
+    SkillTransientAccessError,
+)
 from dapr_agents.skills.models import Skill, SkillMetadata
 from dapr_agents.skills._runtime import SkillRuntimeAdapter
 from dapr_agents.skills.source import SkillSource
@@ -377,7 +381,12 @@ class DurableSkillRuntime:
         catalog: Sequence[Mapping[str, Any]],
         history: Sequence[Any] | None,
     ) -> Any:
-        """Invoke the selected skill operation and redact failures."""
+        """Invoke a skill operation from the ``run_tool`` activity.
+
+        Convert permanent failures into redacted model-facing tool errors, but
+        propagate transient source failures so the activity retry policy can
+        retry them.
+        """
         try:
             if fn_name == LOAD_SKILL_TOOL_NAME:
                 return await self._runtime.load(
@@ -390,6 +399,10 @@ class DurableSkillRuntime:
                 catalog,
                 history,
             )
+        except SkillTransientAccessError:
+            # Keep transient failures out of the cached tool-result path so the
+            # activity retry policy can handle them.
+            raise
         except SkillError as exc:
             logger.warning(f"Skill tool '{fn_name}' failed: {exc}")
             return f"Error executing skill '{fn_name}': {str(exc)}"

@@ -29,6 +29,7 @@ from dapr_agents.skills import (
     SkillUnsafePathError,
     SkillResource,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsupportedMediaTypeError,
 )
 from dapr_agents.skills._runtime import (
@@ -94,6 +95,19 @@ class LazyResourceSource(InMemorySource):
 class FailingSource(InMemorySource):
     async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
         raise RuntimeError("credential=secret-token locator=private-bucket")
+
+
+class TransientLoadSource(InMemorySource):
+    async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
+        self.load_calls += 1
+        raise TimeoutError("temporary source outage")
+
+
+class TransientMetadataSource(InMemorySource):
+    async def list_metadata(
+        self, *, snapshot_id: str | None = None
+    ) -> Sequence[SkillMetadata]:
+        raise ConnectionError("temporary catalog outage")
 
 
 class NamedSource(InMemorySource):
@@ -579,6 +593,30 @@ async def test_cache_and_budget_are_isolated_by_workflow_instance() -> None:
     second = await adapter.read_resource("run-2", skill.name, resource.path, catalog)
 
     assert first.content == second.content == "x" * MAX_RESOURCE_BYTES
+
+
+@pytest.mark.asyncio
+async def test_transient_catalog_failure_uses_retryable_error(skill: Skill) -> None:
+    source = TransientMetadataSource(skill)
+    adapter = SkillRuntimeAdapter([source])
+
+    with pytest.raises(SkillTransientAccessError) as exc_info:
+        await adapter.discover_catalog()
+
+    assert "temporary catalog outage" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_transient_source_failure_uses_retryable_error(skill: Skill) -> None:
+    source = TransientLoadSource(skill)
+    adapter = SkillRuntimeAdapter([source])
+    catalog = await adapter.discover_catalog()
+
+    with pytest.raises(SkillTransientAccessError) as exc_info:
+        await adapter.load("run-1", skill.name, catalog)
+
+    assert source.load_calls == 1
+    assert "temporary source outage" not in str(exc_info.value)
 
 
 @pytest.mark.asyncio

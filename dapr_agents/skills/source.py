@@ -31,6 +31,9 @@ class SkillSource(Protocol):
     or replayable workflows. Sources without an explicit ID use the qualified
     source implementation class name as a compatibility fallback, and duplicate
     fallback identities fail closed. Source methods are not model-facing tools.
+    Implementations may raise ``SkillTransientAccessError`` for temporary
+    failures; timeout and connection failures are classified the same way by
+    the runtime.
     """
 
     async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:

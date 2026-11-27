@@ -20,6 +20,7 @@ from dapr_agents.skills import (
     SkillMalformedError,
     SkillNotFoundError,
     SkillSizeLimitError,
+    SkillTransientAccessError,
     SkillUnsafePathError,
     SkillUnsupportedMediaTypeError,
 )
@@ -34,6 +35,7 @@ from dapr_agents.skills import (
         (SkillAccessError, "access"),
         (SkillUnsupportedMediaTypeError, "unsupported media type"),
         (SkillSizeLimitError, "size limit"),
+        (SkillTransientAccessError, "transient access"),
         (SkillCatalogError, "catalog"),
     ],
 )
