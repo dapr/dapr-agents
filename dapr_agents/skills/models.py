@@ -30,6 +30,7 @@ MAX_INSTRUCTIONS_BYTES = 64 * 1024
 MAX_RESOURCE_BYTES = 1024 * 1024
 MAX_RUN_RESOURCE_BYTES = 4 * 1024 * 1024
 
+_MAX_SKILL_NAME_LENGTH = 64
 _SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -58,19 +59,43 @@ class SkillMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: StrictStr
-    description: StrictStr
-    license: Optional[StrictStr] = None
-    compatibility: Optional[StrictStr] = None
-    metadata: Dict[str, StrictStr] = Field(default_factory=dict)
-    extra_frontmatter: Dict[str, Any] = Field(default_factory=dict)
+    name: StrictStr = Field(
+        description="Canonical Agent Skills name using lowercase letters, numbers, and single hyphens."
+    )
+    description: StrictStr = Field(
+        description="Non-blank, model-facing summary of the skill."
+    )
+    license: Optional[StrictStr] = Field(
+        default=None,
+        description="Optional license identifier or description for the skill.",
+    )
+    compatibility: Optional[StrictStr] = Field(
+        default=None,
+        description="Optional environment or dependency compatibility information.",
+    )
+    metadata: Dict[str, StrictStr] = Field(
+        default_factory=dict,
+        description="Optional standard string-valued metadata fields.",
+    )
+    extra_frontmatter: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Unknown or experimental frontmatter fields are preserved for forward "
+            "compatibility; they are not interpreted by the current runtime."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        if not value or len(value) > 64 or not _SKILL_NAME_PATTERN.fullmatch(value):
+        if (
+            not value
+            or len(value) > _MAX_SKILL_NAME_LENGTH
+            or not _SKILL_NAME_PATTERN.fullmatch(value)
+        ):
             raise ValueError(
-                "name must be 1-64 characters of lowercase letters, numbers, and single hyphens"
+                f"name must be 1-{_MAX_SKILL_NAME_LENGTH} characters of lowercase "
+                "letters, numbers, and single hyphens"
             )
         return value
 
@@ -87,9 +112,18 @@ class SkillResource(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    path: StrictStr
-    content: StrictStr | StrictBytes
-    media_type: StrictStr = "text/plain"
+    path: StrictStr = Field(
+        description="Safe, relative POSIX path identifying the skill resource."
+    )
+    content: StrictStr | StrictBytes = Field(
+        description="Resource content represented as text or bytes."
+    )
+    media_type: StrictStr = Field(
+        default="text/plain",
+        description=(
+            "Media type describing the resource content; defaults to text/plain."
+        ),
+    )
 
     @field_validator("path")
     @classmethod
@@ -113,8 +147,19 @@ class SkillResource(BaseModel):
 class Skill(SkillMetadata):
     """A directly configured Agent Skill with inline instructions and resources."""
 
-    instructions: StrictStr
-    resources: Dict[str, SkillResource] = Field(default_factory=dict)
+    instructions: StrictStr = Field(
+        description=(
+            "Skill instructions returned by load_skill; they do not modify the "
+            "agent's system prompt."
+        )
+    )
+    resources: Dict[str, SkillResource] = Field(
+        default_factory=dict,
+        description=(
+            "Inline resources keyed by safe relative paths; each key must match "
+            "the resource path."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_content(self) -> "Skill":
