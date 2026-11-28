@@ -20,7 +20,13 @@ from dapr_agents.skills.models import Skill, SkillMetadata, SkillResource
 
 @runtime_checkable
 class SkillSource(Protocol):
-    """Async full-lifecycle source protocol for Agent Skills.
+    """Async source for discovering and reading Agent Skills.
+
+    Implementations return skill models and may raise public ``SkillError``
+    subclasses. Temporary source failures should raise
+    ``SkillTransientAccessError`` so the durable activity retry policy can
+    retry them. Unexpected exceptions are classified and redacted by the
+    runtime.
 
     The configuration that adds a source owns its non-empty ``source_id``
     value. The source instance may receive it through its constructor or
@@ -31,23 +37,52 @@ class SkillSource(Protocol):
     or replayable workflows. Sources without an explicit ID use the qualified
     source implementation class name as a compatibility fallback, and duplicate
     fallback identities fail closed. Source methods are not model-facing tools.
-    Implementations may raise ``SkillTransientAccessError`` for temporary
-    failures; timeout and connection failures are classified the same way by
-    the runtime.
+
+    Every operation must honor the supplied snapshot ID and must not silently
+    substitute a different snapshot.
     """
 
     async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
-        """Resolve the current or a persisted source snapshot ID."""
+        """Resolve and validate a skill snapshot ID.
+
+        ``None`` selects the current snapshot. A supplied ID must be validated
+        and either returned as a usable, non-empty snapshot ID or rejected.
+
+        Raises:
+            SkillCatalogError: If the snapshot ID is invalid or unavailable.
+            SkillTransientAccessError: If resolution temporarily fails.
+            SkillAccessError: If resolution permanently fails.
+        """
         ...
 
     async def list_metadata(
         self, *, snapshot_id: str | None = None
     ) -> Sequence[SkillMetadata]:
-        """Return catalog metadata for the selected source snapshot."""
+        """Return skill metadata from the selected skill catalog.
+
+        Return an empty sequence when the skill catalog contains no
+        discoverable skills. Resource inventories may remain unavailable and
+        be resolved lazily later.
+
+        Raises:
+            SkillCatalogError: If the skill catalog is invalid or malformed.
+            SkillTransientAccessError: If discovery temporarily fails.
+            SkillAccessError: If discovery permanently fails.
+        """
         ...
 
     async def load_skill(self, name: str, *, snapshot_id: str | None = None) -> Skill:
-        """Load instructions and resource metadata from a source snapshot."""
+        """Load one skill's instructions and resource metadata.
+
+        The returned skill name must match ``name``. Resource contents may be
+        omitted when the source supports lazy resource loading.
+
+        Raises:
+            SkillNotFoundError: If the named skill is absent.
+            SkillMalformedError: If the skill data is invalid.
+            SkillTransientAccessError: If loading the skill temporarily fails.
+            SkillAccessError: If loading the skill permanently fails.
+        """
         ...
 
     async def read_resource(
@@ -57,7 +92,21 @@ class SkillSource(Protocol):
         *,
         snapshot_id: str | None = None,
     ) -> SkillResource:
-        """Read one resource from a source snapshot."""
+        """Read the content of one resource belonging to a named skill.
+
+        The returned resource path must match ``path`` and belong to ``name``.
+        The source must validate the path and honor the selected snapshot.
+
+        Raises:
+            SkillNotFoundError: If the skill or resource is absent.
+            SkillUnsafePathError: If ``path`` is unsafe.
+            SkillSizeLimitError: If the resource exceeds the configured limit.
+            SkillUnsupportedMediaTypeError: If the resource cannot be read as
+                a supported resource type.
+            SkillTransientAccessError: If reading the skill resource
+                temporarily fails.
+            SkillAccessError: If reading the skill resource permanently fails.
+        """
         ...
 
 
