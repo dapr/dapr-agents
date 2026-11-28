@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import (
     BaseModel,
@@ -71,21 +71,21 @@ class SkillMetadata(BaseModel):
             "must contain at least one non-whitespace character."
         )
     )
-    license: Optional[StrictStr] = Field(
+    license: StrictStr | None = Field(
         default=None,
         description="Optional license name or reference to a bundled license file.",
     )
-    compatibility: Optional[StrictStr] = Field(
+    compatibility: StrictStr | None = Field(
         default=None,
         description="Optional environment requirements for using the skill.",
     )
-    metadata: Dict[str, StrictStr] = Field(
+    metadata: dict[str, StrictStr] = Field(
         default_factory=dict,
         description=(
             "Optional map of string keys to string values for additional metadata."
         ),
     )
-    extra_frontmatter: Dict[str, Any] = Field(
+    extra_frontmatter: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Unknown or experimental frontmatter fields are preserved for forward "
@@ -167,7 +167,7 @@ class Skill(SkillMetadata):
             "not modify the agent's system prompt."
         )
     )
-    resources: Dict[str, SkillResource] = Field(
+    resources: dict[str, SkillResource] = Field(
         default_factory=dict,
         description=(
             "Inline resources keyed by validated relative paths; each key must match "

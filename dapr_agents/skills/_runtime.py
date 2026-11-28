@@ -19,7 +19,7 @@ import logging
 import threading
 from concurrent.futures import Future
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Mapping, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Mapping, Sequence, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
@@ -114,7 +114,7 @@ class _SkillCatalogEntry:
     # after worker restart. Other sources leave it unset.
     snapshot_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = self.metadata.model_dump(mode="json")
         # Provenance is consumed only by the runtime adapter and is never
         # rendered in the model-facing Available Skills section.
@@ -133,16 +133,16 @@ class _RunCache:
     while durable history can rehydrate successful results after worker restart.
     """
 
-    loaded: Dict[str, LoadSkillResult] = field(default_factory=dict)
-    resources: Dict[tuple[str, str], ReadSkillResourceResult] = field(
+    loaded: dict[str, LoadSkillResult] = field(default_factory=dict)
+    resources: dict[tuple[str, str], ReadSkillResourceResult] = field(
         default_factory=dict
     )
     resource_bytes: int = 0
     history_rehydrated: bool = False
 
     lock: threading.Lock = field(default_factory=threading.Lock)
-    load_inflight: Dict[str, Future[LoadSkillResult]] = field(default_factory=dict)
-    resource_inflight: Dict[tuple[str, str], Future[ReadSkillResourceResult]] = field(
+    load_inflight: dict[str, Future[LoadSkillResult]] = field(default_factory=dict)
+    resource_inflight: dict[tuple[str, str], Future[ReadSkillResourceResult]] = field(
         default_factory=dict
     )
 
@@ -227,7 +227,7 @@ class SkillRuntimeAdapter:
 
         # Keep activation, resource, budget, and in-flight state isolated per
         # workflow execution and protect the run registry across worker threads.
-        self._runs: Dict[str, _RunCache] = {}
+        self._runs: dict[str, _RunCache] = {}
         self._runs_lock = threading.Lock()
 
     @staticmethod
@@ -251,7 +251,7 @@ class SkillRuntimeAdapter:
 
     @staticmethod
     def _fail_inflight(
-        inflight: Dict[Any, Future[Any]],
+        inflight: dict[Any, Future[Any]],
         key: Any,
         pending: Future[Any],
         error: BaseException,
@@ -266,7 +266,7 @@ class SkillRuntimeAdapter:
 
     @staticmethod
     def _complete_inflight(
-        inflight: Dict[Any, Future[Any]], key: Any, pending: Future[Any], result: Any
+        inflight: dict[Any, Future[Any]], key: Any, pending: Future[Any], result: Any
     ) -> None:
         """Complete a pending call; the caller must hold the run-cache lock."""
         inflight.pop(key, None)

@@ -13,8 +13,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class SkillError(Exception):
     """Base class for stable public Agent Skills error categories."""
@@ -23,8 +21,8 @@ class SkillError(Exception):
 
     def __init__(
         self,
-        skill_name: Optional[str] = None,
-        path: Optional[str] = None,
+        skill_name: str | None = None,
+        path: str | None = None,
     ) -> None:
         self.skill_name = skill_name
         self.path = path

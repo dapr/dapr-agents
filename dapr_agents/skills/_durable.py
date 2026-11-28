@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import logging
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Mapping, Sequence
 
 from dapr.clients.grpc._state import Concurrency, Consistency
 
@@ -43,7 +43,7 @@ from dapr_agents.types import ToolMessage
 
 logger = logging.getLogger(__name__)
 
-_CLEANUP_INDEX_SAVE_OPTIONS: Dict[str, Any] = {
+_CLEANUP_INDEX_SAVE_OPTIONS: dict[str, Any] = {
     "concurrency": Concurrency.first_write,
     "consistency": Consistency.strong,
 }
@@ -79,7 +79,7 @@ class SkillStateStore:
     def __init__(self, agent_name: str, state_store: StateStoreService) -> None:
         self._agent_name = agent_name
         self._state_store = state_store
-        self._state_keys: Dict[str, set[str]] = {}
+        self._state_keys: dict[str, set[str]] = {}
 
     def catalog_key(self, instance_id: str) -> str:
         return f"dapr-agents-skills:{self._agent_name}:catalog:{instance_id}"
@@ -90,12 +90,12 @@ class SkillStateStore:
     def cleanup_index_key(self, instance_id: str) -> str:
         return f"dapr-agents-skills:{self._agent_name}:cleanup-index:{instance_id}"
 
-    def load(self, key: str) -> Optional[Dict[str, Any]]:
+    def load(self, key: str) -> dict[str, Any] | None:
         """Load one persisted skill-state record, or ``None`` if missing."""
         value = self._state_store.load(key=key, default={})
         return value if isinstance(value, dict) and value else None
 
-    def save(self, instance_id: str, key: str, value: Dict[str, Any]) -> None:
+    def save(self, instance_id: str, key: str, value: dict[str, Any]) -> None:
         """Save a record and register its key for eventual workflow cleanup."""
         # Dedicated keys avoid optimistic-concurrency races between parallel
         # run_tool activities updating the normal conversation entry. Save the
@@ -147,7 +147,7 @@ class SkillStateStore:
 
     def load_tool_result(
         self, instance_id: str, operation_key: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Load and validate a persisted ``ToolMessage`` result."""
         cached = self.load(self.result_key(instance_id, operation_key))
         if cached is None:
@@ -349,10 +349,10 @@ class DurableSkillRuntime:
         tool_call: Mapping[str, Any],
         catalog: Sequence[Mapping[str, Any]],
         history: Sequence[Any] | None,
-        operation_key: Optional[str],
+        operation_key: str | None,
         turn: int,
         order: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute and durably record one model-facing skill tool call."""
         if not isinstance(operation_key, str) or not operation_key:
             operation_key = self.operation_key(instance_id, turn, order, tool_call)
@@ -370,7 +370,7 @@ class DurableSkillRuntime:
 
     def _load_cached_result(
         self, instance_id: str, operation_key: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Return a previously persisted result, if one is valid."""
         return self._state_store.load_tool_result(instance_id, operation_key)
 
@@ -418,7 +418,7 @@ class DurableSkillRuntime:
         fn_name: str,
         tool_call: Mapping[str, Any],
         result: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Serialize and persist a completed skill tool result."""
         # Persist before returning so a crash after completion can replay the
         # exact model-facing result on activity redelivery.
