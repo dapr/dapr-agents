@@ -155,8 +155,7 @@ class _DirectSkillSource:
         self.source_id = f"direct:{skill.name}"
 
     async def resolve_snapshot(self, *, snapshot_id: str | None = None) -> str:
-        if snapshot_id not in (None, self.source_id):
-            raise SkillCatalogError(skill_name=self._skill.name)
+        self._validate_snapshot(snapshot_id)
         return self.source_id
 
     def _validate_snapshot(self, snapshot_id: str | None) -> None:
@@ -396,12 +395,7 @@ class SkillRuntimeAdapter:
         self, name: str, catalog: Sequence[Mapping[str, Any]]
     ) -> LoadSkillResult:
         """Load and validate one skill from its catalog-selected source."""
-        entry = self._catalog_entry(name, catalog)
-        source = self._source_for(entry)
-        snapshot_id = await self._call_source(
-            lambda: self._snapshot_id_for_entry(source, entry, catalog),
-            skill_name=name,
-        )
+        source, snapshot_id = await self._resolve_source_snapshot(name, catalog)
 
         async def operation() -> Any:
             return await source.load_skill(name, snapshot_id=snapshot_id)
@@ -514,12 +508,8 @@ class SkillRuntimeAdapter:
         catalog: Sequence[Mapping[str, Any]],
     ) -> tuple[ReadSkillResourceResult, int]:
         """Read, validate, decode, and size one resource."""
-        entry = self._catalog_entry(name, catalog)
-        source = self._source_for(entry)
-        snapshot_id = await self._call_source(
-            lambda: self._snapshot_id_for_entry(source, entry, catalog),
-            skill_name=name,
-            path=path,
+        source, snapshot_id = await self._resolve_source_snapshot(
+            name, catalog, path=path
         )
 
         async def operation() -> Any:
@@ -585,6 +575,23 @@ class SkillRuntimeAdapter:
             if entry.get("name") == name:
                 return entry
         raise SkillNotFoundError(skill_name=name)
+
+    async def _resolve_source_snapshot(
+        self,
+        name: str,
+        catalog: Sequence[Mapping[str, Any]],
+        *,
+        path: str | None = None,
+    ) -> tuple[SkillSource, str]:
+        """Resolve the catalog-selected source and snapshot for one operation."""
+        entry = self._catalog_entry(name, catalog)
+        source = self._source_for(entry)
+        snapshot_id = await self._call_source(
+            lambda: self._snapshot_id_for_entry(source, entry, catalog),
+            skill_name=name,
+            path=path,
+        )
+        return source, snapshot_id
 
     async def _snapshot_id_for_entry(
         self,
