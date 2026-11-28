@@ -122,6 +122,33 @@ async def test_permanent_filesystem_errors_are_not_retryable(
         await source.resolve_snapshot()
 
 
+def test_skill_paths_are_normalized_and_deduplicated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "skills"
+    root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    source = FileSystemSkillSource([Path("skills"), "skills/", "~/skills"])
+
+    assert source.skill_paths == (root.resolve(),)
+
+
+def test_skill_path_symlink_aliases_are_normalized(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    root.mkdir()
+    alias = tmp_path / "skills-alias"
+    try:
+        alias.symlink_to(root, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable")
+
+    source = FileSystemSkillSource([root, alias])
+
+    assert source.skill_paths == (root.resolve(),)
+
+
 @pytest.mark.asyncio
 async def test_discovery_deduplicates_roots_and_obeys_depth(tmp_path: Path) -> None:
     _write_skill(tmp_path, "direct-skill")
