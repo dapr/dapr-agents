@@ -27,6 +27,7 @@ from typing import (
     Iterable,
     List,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -150,8 +151,15 @@ from dapr_agents.hooks import (
     ToolHookContext,
 )
 from dapr_agents.tool.mcp.dapr_workflow_client import mcp_tool_def_to_workflow_tool
+from dapr_agents.skills import Skill, SkillSource
+from dapr_agents.skills._durable import DurableSkillRuntime
+from dapr_agents.skills._tools import build_skill_tools
 
 logger = get_context_aware_logger(__name__)
+
+# Stable workflow patch marker. Do not rename or remove it while
+# skill-enabled workflows may still be in flight or replayable.
+_SKILL_WORKFLOW_PATCH = "dapr-agents-skills-v1"
 
 
 def _get_framework_from_registry(
@@ -309,9 +317,12 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         registry: Optional[AgentRegistryConfig] = None,
         # Memory
         memory: Optional[AgentMemoryConfig] = None,
+        # LLM / executor wiring
         llm: Optional[ChatClientBase] = None,
         executor: Optional[AgentExecutorBase] = None,
+        # Agent capabilities
         tools: Optional[Iterable[Any]] = None,
+        skills: Optional[Iterable[Union[Skill, SkillSource]]] = None,
         # Behavior / execution
         execution: Optional[AgentExecutionConfig] = None,
         # Misc
@@ -361,6 +372,9 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             tools: Optional tool callables or ``AgentTool`` instances.
                 All agents sharing the same registry are auto-discovered as
                 tools at workflow start via ``load_tools``.
+            skills: Direct ``Skill`` values or configured ``SkillSource``
+                implementations. Skill tools are registered automatically when
+                configured.
 
             agent_metadata: Extra metadata to publish to the registry.
             workflow_grpc: Optional gRPC overrides for the workflow runtime channel.
@@ -373,6 +387,20 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 are connected with default timeouts.  Pass
                 ``AgentMCPConfig(enabled=False)`` to disable auto-discovery.
         """
+        # Materialize and validate skills before AgentBase initializes the
+        # executor; skill tool definitions must be present in the initial
+        # executor and registry metadata.
+        configured_skills = list(skills or [])
+        if configured_skills and executor is not None:
+            raise ValueError(
+                "DurableAgent skills cannot be combined with a third-party executor."
+            )
+        for skill_value in configured_skills:
+            if not isinstance(skill_value, (Skill, SkillSource)):
+                raise TypeError(
+                    "DurableAgent skills must contain only Skill or SkillSource values; "
+                    f"got {type(skill_value).__name__}"
+                )
         # Mark orchestrators to filtered out when other orchestrators query for available agents
         if execution and execution.orchestration_mode:
             agent_metadata = dict(agent_metadata or {})
@@ -386,6 +414,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         tools = [
             item for item in list(tools or []) if not isinstance(item, DurableAgent)
         ]
+        if configured_skills:
+            tools.extend(build_skill_tools())
 
         super().__init__(
             pubsub=pubsub,
@@ -410,6 +440,22 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             configuration=configuration,
         )
 
+        # AgentBase initializes self.name and self.state_store; construct the
+        # replay-aware runtime only after those values are available.
+        state_store = self.state_store
+        self._skill_runtime: Optional[DurableSkillRuntime] = None
+        if configured_skills:
+            if state_store is None:
+                raise ValueError(
+                    "DurableAgent skills require a configured state store "
+                    "for replay-safe activity recovery."
+                )
+            self._skill_runtime = DurableSkillRuntime(
+                agent_name=self.name,
+                skills=configured_skills,
+                state_store=state_store,
+            )
+
         # Convert any DurableAgent objects to AgentWorkflowTool and register immediately.
         # Orchestrators dispatch to sub-agents via their orchestration strategy,
         # not via tool_executor, so agent-as-tool registration is skipped for them.
@@ -422,6 +468,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             # but we've now registered agent-as-tool entries into the executor.
             if self._agents_as_tools and self.execution.tool_choice is None:
                 self.execution.tool_choice = AGENT_DEFAULT_TOOL_CHOICE
+
+        # Skill tools are included in ``tools`` before ``AgentBase`` so their
+        # static definitions are present in agent-registry metadata as well as
+        # in the runtime executor.
 
         # Register built-in tools (e.g., ``ask_user``) unless the caller opted
         # out via ``execution.builtin_tools``. These are lazy: streaming must
@@ -651,6 +701,23 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                 retry_policy=self._retry_policy,
             )
 
+        skill_catalog: Optional[List[Dict[str, Any]]] = None
+        # Check for a configured skill runtime before evaluating the skills workflow
+        # patch marker, so ordinary workflows never evaluate the skills patch. Keep
+        # discovery behind the patch: it adds an activity before the first turn and
+        # changes activity order.
+        if self._skill_runtime is not None and ctx.is_patched(_SKILL_WORKFLOW_PATCH):
+            skill_catalog = yield ctx.call_activity(
+                self._activity_name(self.discover_skill_catalog),
+                input={"instance_id": ctx.instance_id},
+                retry_policy=self._retry_policy,
+            )
+        # Keep independent tool calls parallel, but defer resource reads that depend
+        # on skill activation until activation completes.
+        skill_dependency_barrier_enabled = (
+            self._skill_runtime is not None and skill_catalog is not None
+        )
+
         final_message: Dict[str, Any] = {}
         turn = 0
         _workflow_exc: Optional[Exception] = None
@@ -702,15 +769,20 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         ctx.instance_id,
                     )
 
+                    llm_input: Dict[str, Any] = {
+                        "task": task,
+                        "instance_id": ctx.instance_id,
+                        "time": ctx.current_utc_datetime.isoformat(),
+                        "source": source,
+                        "turn": turn,
+                    }
+                    # Preserve an empty discovered catalog; ``None`` denotes
+                    # the legacy workflow path where skill discovery did not run.
+                    if skill_catalog is not None:
+                        llm_input["skill_catalog"] = skill_catalog
                     assistant_response: Dict[str, Any] = yield ctx.call_activity(
                         self._activity_name(self.call_llm),
-                        input={
-                            "task": task,
-                            "instance_id": ctx.instance_id,
-                            "time": ctx.current_utc_datetime.isoformat(),
-                            "source": source,
-                            "turn": turn,
-                        },
+                        input=llm_input,
                         retry_policy=self._retry_policy,
                     )
                     tool_calls = assistant_response.get("tool_calls") or []
@@ -787,6 +859,18 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                         workflow_meta: List[Dict[str, Any]] = []
                         activity_tasks: List[Any] = []
                         activity_meta: List[Dict[str, Any]] = []
+                        activity_task_meta: List[Dict[str, Any]] = []
+                        skill_load_tasks: List[Any] = []
+                        skill_load_meta: List[Dict[str, Any]] = []
+                        skill_resource_dispatches: List[
+                            Tuple[Dict[str, Any], Dict[str, Any]]
+                        ] = []
+                        skill_dispatch_plan = (
+                            self._skill_runtime._skill_dispatch_plan(tool_calls)
+                            if skill_dependency_barrier_enabled
+                            and self._skill_runtime is not None
+                            else None
+                        )
                         generator_tools: List[Any] = []
                         generator_meta: List[Dict[str, Any]] = []
                         sequential_dispatches: List[
@@ -797,7 +881,6 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                 Optional[Dict[str, Any]],
                             ]
                         ] = []
-
                         for idx, tc in enumerate(tool_calls):
                             fn_name = tc["function"]["name"]
 
@@ -994,6 +1077,22 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                     "instance_id": ctx.instance_id,
                                     "order": idx,
                                 }
+                                if skill_catalog is not None:
+                                    activity_input["skill_catalog"] = skill_catalog
+                                    # Compute the replay key in deterministic
+                                    # workflow code; activity retries must reuse
+                                    # the same key instead of deriving a new one.
+                                    if (
+                                        self._skill_runtime is not None
+                                        and self._skill_runtime.is_skill_tool(
+                                            tc["function"]["name"]
+                                        )
+                                    ):
+                                        activity_input["skill_operation_key"] = (
+                                            self._skill_runtime.operation_key(
+                                                ctx.instance_id, turn, idx, tc
+                                            )
+                                        )
                                 if (
                                     self.execution.tool_execution_mode
                                     == ToolExecutionMode.SEQUENTIAL
@@ -1017,15 +1116,34 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         ctx.current_utc_datetime.isoformat()
                                     )
                                     activity_input["time"] = meta["dispatch_time"]
-                                    activity_tasks.append(
-                                        ctx.call_activity(
+                                    is_skill_activation = (
+                                        skill_dispatch_plan is not None
+                                        and idx
+                                        in skill_dispatch_plan.activation_indexes
+                                    )
+                                    is_deferred_resource = (
+                                        skill_dispatch_plan is not None
+                                        and idx
+                                        in skill_dispatch_plan.deferred_resource_indexes
+                                    )
+                                    if is_deferred_resource:
+                                        # Defer creating the activity task until
+                                        # activation has completed at the barrier.
+                                        skill_resource_dispatches.append(
+                                            (meta, activity_input)
+                                        )
+                                    else:
+                                        task = ctx.call_activity(
                                             self._activity_name(self.run_tool),
                                             input=activity_input,
                                             retry_policy=self._retry_policy,
                                         )
-                                    )
-
-                        all_tasks = workflow_tasks + activity_tasks
+                                        if is_skill_activation:
+                                            skill_load_tasks.append(task)
+                                            skill_load_meta.append(meta)
+                                        else:
+                                            activity_tasks.append(task)
+                                            activity_task_meta.append(meta)
 
                         # Emit TURN_PAUSED before dispatching agent-as-tool
                         # calls so UIs know this agent is waiting on child
@@ -1096,10 +1214,69 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                                         name=tc["function"]["name"],
                                         tool_call_id=tc["id"],
                                     ).model_dump()
-                        elif not all_tasks:
+                        elif skill_dependency_barrier_enabled:
+                            # The initial dispatch contains independent work;
+                            # dependent resource reads wait for activation to complete.
+                            initial_activity_tasks = activity_tasks + skill_load_tasks
+                            initial_activity_meta = activity_task_meta + skill_load_meta
+                            initial_tasks = workflow_tasks + initial_activity_tasks
+                            if initial_tasks:
+                                initial_results = yield wf.when_all(initial_tasks)
+                            else:
+                                initial_results = []
+
+                            for meta, res in zip(
+                                workflow_meta,
+                                initial_results[: len(workflow_tasks)],
+                            ):
+                                tc = meta["tool_call"]
+                                fn_name = tc["function"]["name"]
+                                serialized = serialize_tool_result(res)
+                                tool_msg = ToolMessage(
+                                    content=serialized,
+                                    role="tool",
+                                    name=fn_name,
+                                    tool_call_id=tc["id"],
+                                )
+                                ordered[meta["order"]] = tool_msg.model_dump()
+
+                            for meta, res in zip(
+                                initial_activity_meta,
+                                initial_results[len(workflow_tasks) :],
+                            ):
+                                ordered[meta["order"]] = res
+
+                            if skill_resource_dispatches:
+                                skill_resource_tasks: List[Any] = []
+                                skill_resource_meta: List[Dict[str, Any]] = []
+                                for meta, activity_input in skill_resource_dispatches:
+                                    dispatch_time = ctx.current_utc_datetime.isoformat()
+                                    meta["dispatch_time"] = dispatch_time
+                                    activity_input["time"] = dispatch_time
+                                    skill_resource_tasks.append(
+                                        ctx.call_activity(
+                                            self._activity_name(self.run_tool),
+                                            input=activity_input,
+                                            retry_policy=self._retry_policy,
+                                        )
+                                    )
+                                    skill_resource_meta.append(meta)
+                                resource_results = yield wf.when_all(
+                                    skill_resource_tasks
+                                )
+                                for meta, res in zip(
+                                    skill_resource_meta, resource_results
+                                ):
+                                    ordered[meta["order"]] = res
+                            # Results were already mapped into `ordered` during each
+                            # dependency phase.
                             results = []
                         else:
-                            results = yield wf.when_all(all_tasks)
+                            all_tasks = workflow_tasks + activity_tasks
+                            if all_tasks:
+                                results = yield wf.when_all(all_tasks)
+                            else:
+                                results = []
 
                         if stream_ctx and child_agent_dispatches:
                             yield ctx.call_activity(
@@ -1140,7 +1317,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
                             ordered[meta["order"]] = tool_msg.model_dump()
 
                         for meta, res in zip(
-                            activity_meta, results[len(workflow_tasks) :]
+                            activity_task_meta, results[len(workflow_tasks) :]
                         ):
                             ordered[meta["order"]] = res
 
@@ -2285,6 +2462,25 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
     # ------------------------------------------------------------------
     # Activities
     # ------------------------------------------------------------------
+    def discover_skill_catalog(
+        self,
+        ctx: wf.WorkflowActivityContext,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Discover and persist the immutable catalog for one workflow run.
+
+        The dedicated snapshot key makes activity redelivery return the exact
+        catalog already observed by the workflow instead of re-querying a source
+        that may have changed while the sidecar or worker was unavailable.
+        """
+        if self._skill_runtime is None:
+            return []
+        instance_id = (payload or {}).get("instance_id")
+        if not isinstance(instance_id, str) or not instance_id:
+            workflow_id = getattr(ctx, "workflow_id", None)
+            instance_id = workflow_id if isinstance(workflow_id, str) else "catalog"
+        return self._run_asyncio_task(self._skill_runtime.discover_catalog(instance_id))
+
     def record_initial_entry(
         self, ctx: wf.WorkflowActivityContext, payload: Dict[str, Any]
     ) -> None:
@@ -2405,6 +2601,18 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             user_input=task,
             chat_history=chat_history,
         )
+        skill_catalog = payload.get("skill_catalog")
+        if skill_catalog and self._skill_runtime is not None:
+            # Keep the discovered catalog in a separate system message so it
+            # cannot mutate the caller's base prompt; prompt_section also
+            # applies the fixed non-authoritative skill guardrail.
+            messages.insert(
+                1,
+                {
+                    "role": "system",
+                    "content": self._skill_runtime.prompt_section(skill_catalog),
+                },
+            )
 
         # Sync current system messages into per-instance state
         self._sync_system_messages_with_state(instance_id, messages, entry=entry)
@@ -2439,6 +2647,15 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         last_had_tool_calls = bool(last_assistant and last_assistant.get("tool_calls"))
 
         tools = self.get_llm_tools()
+        # Do not expose skill tools when this run has no discovered catalog;
+        # static registration remains available for metadata, but the model
+        # must not request skills that were not admitted for this run.
+        if self._skill_runtime is not None and not skill_catalog:
+            tools = [
+                tool
+                for tool in tools
+                if not self._skill_runtime.is_skill_tool(tool.name)
+            ]
         generate_kwargs: Dict[str, Any] = {"messages": messages}
         fresh_structured_turn: bool = (
             response_model is not None and not last_had_tool_calls
@@ -3109,6 +3326,39 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         ):
             args = args["kwargs"]
 
+        # Route skill tools through the replay-aware runtime before generic
+        # execution. This preserves activation checks, resource budgets,
+        # durable-history fallback, and deterministic operation-key handling.
+        if self._skill_runtime is not None and self._skill_runtime.is_skill_tool(
+            fn_name
+        ):
+            instance_id = str(payload.get("instance_id", ""))
+            try:
+                turn = int(payload.get("turn", 0))
+                order = int(payload.get("order", 0))
+            except (TypeError, ValueError):
+                turn = 0
+                order = 0
+            entry = self._infra.get_state(instance_id)
+            history = getattr(entry, "messages", None) if entry is not None else None
+            tool_result_dict = self._run_asyncio_task(
+                self._skill_runtime.execute_tool(
+                    instance_id=instance_id,
+                    fn_name=fn_name,
+                    args=args,
+                    tool_call=tool_call,
+                    catalog=payload.get("skill_catalog") or [],
+                    history=history,
+                    operation_key=payload.get("skill_operation_key"),
+                    turn=turn,
+                    order=order,
+                )
+            )
+            self.text_formatter.print_message(
+                ToolMessage.model_validate(tool_result_dict)
+            )
+            return tool_result_dict
+
         # Sanity-check: run_tool activities cannot execute
         # WorkflowContextInjectedTool instances because activities don't have
         # a workflow context to inject. If a tool that needs ctx somehow
@@ -3567,6 +3817,10 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         instance_id = payload.get("instance_id")
         triggering_workflow_instance_id = payload.get("triggering_workflow_instance_id")
         final_message = payload.get("final_message")
+        # Replay records are safe to remove only once terminal finalization
+        # begins; cleanup is idempotent and best-effort in the skill state store.
+        if self._skill_runtime is not None and instance_id:
+            self._skill_runtime.clear(str(instance_id))
 
         try:
             entry = self._infra.get_state(instance_id)
@@ -4292,6 +4546,7 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
             self.publish_stream_event,
             self.get_team_members,
             self.load_tools,
+            self.discover_skill_catalog,
         )
 
     def _agent_orchestration_activities(self) -> tuple[Callable[..., Any], ...]:

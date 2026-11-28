@@ -18,6 +18,7 @@ from __future__ import annotations
 import copy
 import json
 import threading
+from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 
 from dapr_agents.storage.daprstores.stateservice import StateStoreError
@@ -56,6 +57,50 @@ class FakeEtagStateStore:
     def seed(self, key: str, value: Any) -> None:
         with self._lock:
             self._store(key, value)
+
+    def get_state(
+        self,
+        key: str,
+        state_metadata: Optional[Dict[str, str]] = None,
+    ) -> SimpleNamespace:
+        """Expose the Dapr client read shape used by ``StateStoreService``."""
+        with self._lock:
+            if key not in self.data:
+                return SimpleNamespace(data=b"", etag=None)
+            payload = json.loads(self.data[key])
+            return SimpleNamespace(
+                data=self.data[key].encode("utf-8"),
+                etag=str(self.versions[key]),
+                json=lambda: payload,
+            )
+
+    def save_state(
+        self,
+        key: str,
+        data: Any,
+        state_metadata: Optional[Dict[str, str]] = None,
+        etag: Optional[str] = None,
+        state_options: Any = None,
+    ) -> None:
+        """Expose the Dapr client write shape used by ``StateStoreService``."""
+        value = json.loads(data) if isinstance(data, str) else data
+        self.save(
+            key=key,
+            value=value,
+            etag=etag,
+            state_metadata=state_metadata,
+            state_options=state_options,
+        )
+
+    def delete_state(
+        self,
+        key: str,
+        state_metadata: Optional[Dict[str, str]] = None,
+        etag: Optional[str] = None,
+        state_options: Any = None,
+    ) -> None:
+        """Expose the Dapr client delete shape used by ``StateStoreService``."""
+        self.delete(key=key, etag=etag, state_options=state_options)
 
     def load_with_etag(self, *, key, default=None, state_metadata=None):
         with self._lock:
