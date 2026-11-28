@@ -357,6 +357,10 @@ class StateStoreService:
 
         Returns:
             Mapping of logical key -> dict/model for keys that existed.
+
+        Raises:
+            StateStoreError: A bulk request or an individual key read failed.
+                Missing keys without an error are omitted from the result.
         """
         qualified_keys = [self._qualify(k) for k in keys]
         logger.debug(
@@ -364,11 +368,17 @@ class StateStoreService:
         )
 
         def call() -> Sequence[BulkStateItem]:
-            return self._store().get_bulk_state(
+            items = self._store().get_bulk_state(
                 qualified_keys,
                 parallelism=parallelism,
                 states_metadata=state_metadata,
             )
+            for item in items or []:
+                if item.error:
+                    raise StateStoreError(
+                        f"Failed to retrieve state for key '{item.key}' in bulk response"
+                    )
+            return items
 
         try:
             items = self._with_retries(call)

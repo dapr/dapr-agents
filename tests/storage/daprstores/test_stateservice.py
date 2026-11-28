@@ -14,6 +14,7 @@
 import json
 from unittest.mock import MagicMock
 
+from dapr.clients.grpc._response import BulkStateItem
 import pytest
 from pydantic import BaseModel
 
@@ -48,11 +49,12 @@ def _state_response(payload=None, etag=None):
     return response
 
 
-def _bulk_item(key, payload):
-    item = MagicMock()
-    item.key = key
-    item.data = json.dumps(payload) if payload is not None else ""
-    return item
+def _bulk_item(key, payload, error=""):
+    return BulkStateItem(
+        key=key,
+        data=json.dumps(payload) if payload is not None else "",
+        error=error,
+    )
 
 
 def test_constructor_requires_store_name():
@@ -204,6 +206,36 @@ def test_load_many_strips_prefix_and_skips_empty_items():
     ]
     result = service.load_many(["a", "b"])
     assert result == {"a": {"count": 1}}
+
+
+@pytest.mark.parametrize("payload", [None, {"count": 9}])
+def test_load_many_raises_when_an_individual_read_fails(payload):
+    service, store = _make_service(retry_attempts=2)
+    store.get_bulk_state.return_value = [
+        _bulk_item("a", {"count": 1}),
+        _bulk_item("failed", payload, error="backend read failed"),
+    ]
+
+    with pytest.raises(StateStoreError, match="failed") as excinfo:
+        service.load_many(["a", "failed"])
+
+    assert type(excinfo.value) is StateStoreError
+    assert store.get_bulk_state.call_count == 2
+    assert "backend read failed" not in str(excinfo.value)
+
+
+def test_load_many_retries_individual_read_errors_before_decoding():
+    service, store = _make_service(key_prefix="blog:", retry_attempts=2)
+    store.get_bulk_state.side_effect = [
+        [_bulk_item("blog:a", None, error="temporarily unavailable")],
+        [_bulk_item("blog:a", {"count": 2}), _bulk_item("blog:missing", None)],
+    ]
+
+    assert service.load_many(["a", "missing"], parallelism=3) == {"a": {"count": 2}}
+    assert store.get_bulk_state.call_count == 2
+    store.get_bulk_state.assert_called_with(
+        ["blog:a", "blog:missing"], parallelism=3, states_metadata=None
+    )
 
 
 def test_save_qualifies_key_and_serializes_payload():
