@@ -38,7 +38,7 @@ def _content_size(content: str | bytes) -> int:
     return len(content.encode("utf-8")) if isinstance(content, str) else len(content)
 
 
-def _validate_skill_path(path: str) -> str:
+def _validate_resource_path(path: str) -> str:
     """Validate a resource path as a relative POSIX exact path.
 
     Glob patterns are unsupported.
@@ -146,7 +146,7 @@ class SkillResource(BaseModel):
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str) -> str:
-        return _validate_skill_path(value)
+        return _validate_resource_path(value)
 
     @field_validator("media_type")
     @classmethod

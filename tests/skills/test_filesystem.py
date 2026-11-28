@@ -53,6 +53,17 @@ def test_source_rejects_bare_or_empty_skill_paths(skill_paths: Any) -> None:
         FileSystemSkillSource(skill_paths)
 
 
+@pytest.mark.parametrize(
+    "skill_path", ["skills/*", "skills/**", "skills?", "skills[0]", Path("skills/*")]
+)
+def test_source_rejects_glob_skill_paths(skill_path: str | Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="skill_paths must be explicit directories",
+    ):
+        FileSystemSkillSource([skill_path])
+
+
 def test_source_rejects_invalid_configuration(tmp_path: Path) -> None:
     with pytest.raises(TypeError):
         FileSystemSkillSource([object()])

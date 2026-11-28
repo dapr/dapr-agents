@@ -44,7 +44,7 @@ from dapr_agents.skills.models import (
     Skill,
     SkillMetadata,
     SkillResource,
-    _validate_skill_path,
+    _validate_resource_path,
 )
 from dapr_agents.skills.source import SkillSource
 
@@ -428,7 +428,7 @@ class SkillRuntimeAdapter:
     ) -> ReadSkillResourceResult:
         """Read one UTF-8 resource from an activated skill, coalescing concurrent requests."""
         try:
-            _validate_skill_path(path)
+            _validate_resource_path(path)
         except ValueError as exc:
             raise SkillUnsafePathError(skill_name=name, path=path) from exc
 

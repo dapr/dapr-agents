@@ -44,7 +44,7 @@ from dapr_agents.skills.models import (
     Skill,
     SkillMetadata,
     SkillResource,
-    _validate_skill_path,
+    _validate_resource_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,9 @@ class _DiscoveredSkill:
 class FileSystemSkillSource:
     """Discover Agent Skills from explicitly configured filesystem roots.
 
-    Discovery creates a canonical, metadata-only snapshot manifest for each
+    ``skill_paths`` must contain explicit directory paths; glob patterns are
+    unsupported. Discovery recursively visits each root up to ``max_depth``
+    and creates a canonical, metadata-only snapshot manifest for each
     skill and carries its digest through durable catalog state; later reads
     verify the same paths and metadata-based file signatures before opening any
     bytes. Resources remain lazy, and detected mutations fail closed. The
@@ -223,6 +225,11 @@ class FileSystemSkillSource:
         for value in skill_paths:
             if not isinstance(value, (str, Path)):
                 raise TypeError("skill_paths must contain only strings or Path values")
+            if any(character in str(value) for character in "*?[]"):
+                raise ValueError(
+                    "skill_paths must be explicit directories; "
+                    "glob patterns are unsupported"
+                )
             root = Path(value).expanduser().resolve(strict=False)
             if root not in roots:
                 roots.append(root)
@@ -297,7 +304,7 @@ class FileSystemSkillSource:
         self, name: str, path: str, *, snapshot_id: str | None = None
     ) -> SkillResource:
         """Read one bounded resource from a pinned snapshot."""
-        _validate_resource_path(name, path)
+        _validate_filesystem_resource_path(name, path)
         try:
             record = await self._record_for_snapshot(name, snapshot_id)
             return await asyncio.to_thread(self._read_resource_sync, record, path)
@@ -927,10 +934,10 @@ def _metadata_from_frontmatter(raw: Any, skill_name: str) -> SkillMetadata:
         raise SkillMalformedError(skill_name=skill_name, path=_SKILL_FILE_NAME) from exc
 
 
-def _validate_resource_path(name: str, path: str) -> None:
+def _validate_filesystem_resource_path(name: str, path: str) -> None:
     """Reject resource paths that escape the skill or target hidden content."""
     try:
-        _validate_skill_path(path)
+        _validate_resource_path(path)
     except (TypeError, ValueError) as exc:
         raise SkillUnsafePathError(skill_name=name, path=path) from exc
     parts = path.split("/")
