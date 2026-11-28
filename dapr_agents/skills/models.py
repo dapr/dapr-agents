@@ -39,13 +39,17 @@ def _content_size(content: str | bytes) -> int:
 
 
 def _validate_skill_path(path: str) -> str:
-    """Validate a resource path against relative POSIX path restrictions."""
+    """Validate a resource path as a relative POSIX exact path.
+
+    Glob patterns are unsupported.
+    """
     if (
         not path
         or "\x00" in path
         or path.startswith(("/", "\\"))
         or ":" in path.split("/", 1)[0]
         or "\\" in path
+        or any(character in path for character in "*?[]")
     ):
         raise ValueError("unsafe skill resource path")
     parts = path.split("/")
