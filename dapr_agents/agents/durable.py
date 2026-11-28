@@ -704,9 +704,8 @@ class DurableAgent(DurableExecutorMixin, AgentBase):
         skill_catalog: Optional[List[Dict[str, Any]]] = None
         # Check for a configured skill runtime before evaluating the skills workflow
         # patch marker, so ordinary workflows never evaluate the skills patch. Keep
-        # discovery behind the patch because it adds a durable activity before the
-        # first turn; the activity snapshots the catalog for deterministic replay
-        # and redelivery.
+        # discovery behind the patch: it adds an activity before the first turn and
+        # changes activity order.
         if self._skill_runtime is not None and ctx.is_patched(_SKILL_WORKFLOW_PATCH):
             skill_catalog = yield ctx.call_activity(
                 self._activity_name(self.discover_skill_catalog),
