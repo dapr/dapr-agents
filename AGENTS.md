@@ -69,7 +69,7 @@ Dapr Agents use semantic versioning for releasing. Prefer making changes that al
 - **Type Checking**: mypy (config: `./mypy.ini`)
 - **All checks MUST pass** before merge
 - **General**:
-  - **Typing**: Enforce strong typing (e.g., `variable: Dict[str, List[str]] = ..`)
+  - **Typing**: Enforce strong typing (e.g., `variable: Dict[str, List[str]] = ..`). In new files, use Python 3.11+ built-in generics (`list`, `dict`, `tuple`) and union syntax (`T | None`); in existing files, match the file’s established typing style unless intentionally modernizing it.
   - **Pydantic Models**: For validated/serialized data (APIs, configs, external input)
   - **Dataclasses**: For internal data structures without validation
   - **Logging**:
