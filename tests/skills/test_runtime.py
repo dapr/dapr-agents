@@ -662,7 +662,7 @@ async def test_mismatched_provider_resource_is_rejected(skill: Skill) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_resource_errors_and_malformed_values_are_safe(
+async def test_source_resource_errors_and_malformed_values_use_public_errors(
     skill: Skill,
 ) -> None:
     for source, error_type in [
@@ -728,7 +728,7 @@ def test_adapter_rejects_invalid_source_values() -> None:
 
 
 @pytest.mark.asyncio
-async def test_malformed_provider_outputs_use_safe_errors(skill: Skill) -> None:
+async def test_malformed_source_outputs_use_public_errors(skill: Skill) -> None:
     with pytest.raises(SkillAccessError):
         await SkillRuntimeAdapter([SkillErrorMetadataSource()]).discover_catalog()
     with pytest.raises(SkillCatalogError):
@@ -741,7 +741,7 @@ async def test_malformed_provider_outputs_use_safe_errors(skill: Skill) -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_load_errors_and_name_mismatches_are_safe(
+async def test_source_load_errors_and_name_mismatches_use_public_errors(
     skill: Skill,
 ) -> None:
     for source, error_type in [

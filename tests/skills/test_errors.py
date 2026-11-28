@@ -39,7 +39,7 @@ from dapr_agents.skills import (
         (SkillCatalogError, "catalog"),
     ],
 )
-def test_public_skill_errors_have_stable_safe_hierarchy(
+def test_public_skill_errors_have_stable_categories_and_context(
     error_type: type[SkillError], category: str
 ) -> None:
     error = error_type(

@@ -17,7 +17,7 @@ from typing import Optional
 
 
 class SkillError(Exception):
-    """Base class for safe, stable public Agent Skills errors."""
+    """Base class for stable public Agent Skills error categories."""
 
     category = "skill"
 

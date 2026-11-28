@@ -299,7 +299,7 @@ class SkillRuntimeAdapter:
 
         try:
             return [entry.to_dict() for entry in catalog]
-        except Exception as exc:  # noqa: BLE001 - safe public category
+        except Exception as exc:  # noqa: BLE001 - map catalog serialization failures to a stable public error
             raise SkillCatalogError() from exc
 
     async def _discover_source_catalog(
@@ -342,7 +342,7 @@ class SkillRuntimeAdapter:
                 )
         except SkillError:
             raise
-        except Exception as exc:  # noqa: BLE001 - safe public category
+        except Exception as exc:  # noqa: BLE001 - map malformed source metadata to a stable public error
             raise SkillCatalogError() from exc
         return entries
 
@@ -535,7 +535,7 @@ class SkillRuntimeAdapter:
         skill_name: str,
         path: str | None = None,
     ) -> _ValueT:
-        """Run source I/O and map source failures to safe public errors."""
+        """Run source I/O and map source failures to redacted public errors."""
         try:
             return await operation()
         except SkillError as exc:
@@ -559,7 +559,7 @@ class SkillRuntimeAdapter:
         """Validate source output without exposing source details."""
         try:
             return model_type.model_validate(value)
-        except Exception as exc:  # noqa: BLE001 - safe public category
+        except Exception as exc:  # noqa: BLE001 - map malformed source output to a stable public error
             raise SkillMalformedError(skill_name=skill_name, path=path) from exc
 
     def clear(self, instance_id: str) -> None:
@@ -669,7 +669,7 @@ class SkillRuntimeAdapter:
         The conversation layer supplies the reconstructed history. Restore
         successful ``load_skill`` results in a first pass so a resource result
         cannot bypass activation merely because messages were recorded out of
-        order. The second pass can then safely validate resource provenance and
+        order. The second pass can then validate resource provenance and
         byte budgets against the restored activation state.
         """
         if run_cache.history_rehydrated or not history:
@@ -752,5 +752,5 @@ class SkillRuntimeAdapter:
                     run_cache.resource_bytes += size
         except (TypeError, ValueError):
             # Legacy or malformed history is not a cache hit; the normal source
-            # path will validate and reload it safely.
+            # path will validate and reload it through the normal source path.
             return

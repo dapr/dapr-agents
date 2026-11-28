@@ -39,7 +39,7 @@ def _content_size(content: str | bytes) -> int:
 
 
 def _validate_skill_path(path: str) -> str:
-    """Validate a resource path as a safe relative POSIX path."""
+    """Validate a resource path against relative POSIX path restrictions."""
     if (
         not path
         or "\x00" in path
@@ -60,22 +60,30 @@ class SkillMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: StrictStr = Field(
-        description="Canonical Agent Skills name using lowercase letters, numbers, and single hyphens."
+        description=(
+            "Canonical Agent Skills name: 1-64 lowercase letters, numbers, and "
+            "hyphens, without leading, trailing, or consecutive hyphens."
+        )
     )
     description: StrictStr = Field(
-        description="Non-blank, model-facing summary of the skill."
+        description=(
+            "Required description of what the skill does and when to use it; "
+            "must contain at least one non-whitespace character."
+        )
     )
     license: Optional[StrictStr] = Field(
         default=None,
-        description="Optional license identifier or description for the skill.",
+        description="Optional license name or reference to a bundled license file.",
     )
     compatibility: Optional[StrictStr] = Field(
         default=None,
-        description="Optional environment or dependency compatibility information.",
+        description="Optional environment requirements for using the skill.",
     )
     metadata: Dict[str, StrictStr] = Field(
         default_factory=dict,
-        description="Optional standard string-valued metadata fields.",
+        description=(
+            "Optional map of string keys to string values for additional metadata."
+        ),
     )
     extra_frontmatter: Dict[str, Any] = Field(
         default_factory=dict,
@@ -103,7 +111,9 @@ class SkillMetadata(BaseModel):
     @classmethod
     def validate_description(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("description must not be empty")
+            raise ValueError(
+                "description must contain at least one non-whitespace character"
+            )
         return value
 
 
@@ -113,7 +123,10 @@ class SkillResource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: StrictStr = Field(
-        description="Safe, relative POSIX path identifying the skill resource."
+        description=(
+            "Relative POSIX path identifying the resource within the skill; "
+            "absolute paths, traversal, and scripts/ paths are rejected."
+        )
     )
     content: StrictStr | StrictBytes = Field(
         description="Resource content represented as text or bytes."
@@ -121,7 +134,8 @@ class SkillResource(BaseModel):
     media_type: StrictStr = Field(
         default="text/plain",
         description=(
-            "Media type describing the resource content; defaults to text/plain."
+            "Media type describing the resource content; defaults to "
+            "text/plain when unspecified."
         ),
     )
 
@@ -149,15 +163,15 @@ class Skill(SkillMetadata):
 
     instructions: StrictStr = Field(
         description=(
-            "Skill instructions returned by load_skill; they do not modify the "
-            "agent's system prompt."
+            "Skill instructions returned by load_skill; they may be empty and do "
+            "not modify the agent's system prompt."
         )
     )
     resources: Dict[str, SkillResource] = Field(
         default_factory=dict,
         description=(
-            "Inline resources keyed by safe relative paths; each key must match "
-            "the resource path."
+            "Inline resources keyed by validated relative paths; each key must match "
+            "the corresponding resource path."
         ),
     )
 

@@ -159,7 +159,7 @@ class SkillStateStore:
 
         try:
             return ToolMessage.model_validate(raw_result).model_dump()
-        except Exception:  # noqa: BLE001 - ignore stale state entries safely
+        except Exception:  # noqa: BLE001 - ignore stale state entries without failing replay
             logger.warning(
                 f"Ignoring malformed persisted skill result for instance={instance_id} "
                 f"operation={operation_key}"
@@ -181,7 +181,7 @@ class SkillStateStore:
                     key: item for key, item in entry.items() if not key.startswith("_")
                 }
                 SkillMetadata.model_validate(metadata)
-            except Exception as exc:  # noqa: BLE001 - safe public category
+            except Exception as exc:  # noqa: BLE001 - map malformed persisted catalog to a stable public error
                 raise SkillCatalogError() from exc
 
             source_id = entry.get("_source_id")
