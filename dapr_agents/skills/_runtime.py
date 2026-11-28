@@ -81,25 +81,33 @@ def _skill_metadata(skill: Skill) -> SkillMetadata:
 
 
 class LoadSkillResult(BaseModel):
-    """Structured result returned by ``load_skill``."""
+    """Structured model-facing result returned by ``load_skill``."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: StrictStr
-    instructions: StrictStr
-    available_resources: list[StrictStr] = Field(default_factory=list)
+    name: StrictStr = Field(description="Name of the skill.")
+    instructions: StrictStr = Field(description="Instructions for the skill.")
+    available_resources: list[StrictStr] = Field(
+        default_factory=list,
+        description="Relative paths of resources that can be read for the skill.",
+    )
 
 
 class ReadSkillResourceResult(BaseModel):
-    """Structured UTF-8 result returned by ``read_skill_resource``."""
+    """Structured model-facing result returned by ``read_skill_resource``."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: StrictStr
-    path: StrictStr
-    media_type: StrictStr
-    encoding: StrictStr = "utf-8"
-    content: StrictStr
+    name: StrictStr = Field(description="Name of the skill containing the resource.")
+    path: StrictStr = Field(
+        description="Relative path of the resource within the skill."
+    )
+    media_type: StrictStr = Field(description="Media type of the resource content.")
+    encoding: StrictStr = Field(
+        default="utf-8",
+        description="Character encoding of the content; defaults to UTF-8.",
+    )
+    content: StrictStr = Field(description="Text content of the resource.")
 
 
 @dataclass(frozen=True)
