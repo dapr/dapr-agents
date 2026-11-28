@@ -14,7 +14,6 @@
 import json
 from unittest.mock import MagicMock
 
-from dapr.clients.grpc._response import BulkStateItem
 import pytest
 from pydantic import BaseModel
 
@@ -50,11 +49,11 @@ def _state_response(payload=None, etag=None):
 
 
 def _bulk_item(key, payload, error=""):
-    return BulkStateItem(
-        key=key,
-        data=json.dumps(payload) if payload is not None else "",
-        error=error,
-    )
+    item = MagicMock()
+    item.key = key
+    item.data = json.dumps(payload) if payload is not None else ""
+    item.error = error
+    return item
 
 
 def test_constructor_requires_store_name():
